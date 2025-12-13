@@ -1,11 +1,11 @@
 # MSK RAG Chatbot  
 ### Clinical Question Answering over MSK Neurology (Retrieval-Augmented Generation)
 
-This repository contains a retrieval-augmented question answering (RAG) system designed to answer **mechanism-level clinical questions** using an offline corpus derived from **MSKNeurology.com** (Kjetil Larsen). The system emphasizes **retrieval correctness, transparency, and interpretability** over end-to-end generation.
+This repository contains a retrieval-augmented question answering (RAG) system designed to answer **mechanism-level clinical questions** using a corpus derived from **MSKNeurology.com** (Kjetil Larsen). The system emphasizes **retrieval correctness, transparency, and interpretability** over end-to-end generation.
 
-Rather than treating the language model as an oracle, the system exposes the full retrieval process—selected chunks, similarity scores, heuristic biasing, reranking behavior, token budgeting, and latency—so that answers can be inspected, evaluated, and debugged.
+The system exposes the full retrieval process—selected chunks, similarity scores, heuristic biasing, reranking behavior, token budgeting, and latency—so that answers can be inspected, evaluated, and debugged.
 
-> **Scope note:** This system is not a medical device and does not provide diagnoses or treatment recommendations. It is an educational and research-oriented explainer grounded strictly in retrieved corpus content.
+> **Scope note:** This system is not a medical device and does not provide diagnoses or treatment recommendations. It is an educational and research-oriented "explainer" grounded strictly in retrieved corpus content.
 
 ---
 
@@ -45,7 +45,7 @@ For each user query:
 
 ## Key design choices
 
-- **Retrieval first, generation last:** Answer quality is treated as a downstream effect of retrieval quality.
+- **Retrieval first, generation last:** Answer quality is a downstream effect of retrieval quality.
 - **Deterministic context assembly:** Token budgets and selection rules are fixed and inspectable.
 - **Heuristic biasing over black-box ranking:** Domain knowledge is encoded explicitly rather than deferred to a model.
 - **Telemetry by default:** Retrieval behavior is surfaced in the UI to enable qualitative analysis.
