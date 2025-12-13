@@ -41,6 +41,8 @@ For each user query:
 5. Retrieved context is deterministically packed under a fixed token budget.
 6. A grounded answer is generated strictly from the assembled context.
 
+<img width="6044" height="3124" alt="MSKRAGArch drawio" src="https://github.com/user-attachments/assets/2b376e20-653e-4885-b228-b4ec330d98f0" />
+
 ---
 
 ## Key design choices
