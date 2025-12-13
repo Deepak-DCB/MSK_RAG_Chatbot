@@ -2,7 +2,7 @@
 
 A local, end-to-end **retrieval-augmented generation (RAG)** system for asking clinical “mechanism” questions against an offline mirror of **MSKNeurology.com** (Kjetil Larsen). The system is built for **transparent retrieval**: it shows the chunks it used, similarity scores, biasing, reranker outputs, token budgeting, and latency telemetry, and then generates a grounded answer using the retrieved context.
 
-> **Important scope note (read this once):** This project is **not** a medical device and does **not** provide diagnoses or prescriptions. It is a mechanism-focused, evidence-grounded explainer that depends on the supplied corpus context.
+> **Important scope note:** This project is **not** a medical device and does **not** provide diagnoses or prescriptions. It is a mechanism-focused, evidence-grounded explainer that depends on the supplied corpus context.
 
 ---
 
@@ -31,30 +31,95 @@ Because this app requires a server (Python + retrieval + OpenAI calls), it **can
 - **Streamlit Community Cloud** for the interactive app
 - **GitHub Pages** for a static landing page (screenshots, architecture, and links)
 
-Add your links here once deployed:
-
 - **Streamlit app:** `https://<your-app>.streamlit.app`
 - **Demo video:** `https://<youtube-or-drive-link>`
-- **Project report PDF:** `./MSK_RAG_Report.pdf` (or link)
+- **Project report PDF:** `./MSK_RAG_Report.pdf` 
 
 ---
-
 ## Repository layout
 
-Your local project layout (example) looks like:
-
-```
+```text
 msk_chat/
-  chatbot/mskbot.py
-  MSKArticlesINDEX/          # chunks.parquet + all_articles.jsonl (+ optional HTTrack mirror)
-  embeddings/                # embeddings.npy + embedding_model.txt
-  chroma_store/              # persistent ChromaDB store (sqlite + binaries)
-  Embedding/embedding.py     # embedding pipeline script (may also exist at repo root)
-  Eval/                      # evaluation scripts + plots
-  ...
+├── .env
+│   └── Local environment variables (API keys; never committed)
+├── .gitignore
+│   └── Excludes secrets, embeddings, vector DB, and large artifacts
+├── app.py
+│   └── Optional top-level launcher / experiments
+│
+├── chatbot/
+│   └── mskbot.py
+│       └── Streamlit UI (input, answers, retrieval telemetry)
+│
+├── Text_Extraction/
+│   └── textExtract.py
+│       └── HTML cleaning and sentence/token-aware chunking
+│
+├── Embedding/
+│   └── embedding.py
+│       └── Chunk embedding generation (SentenceTransformers)
+│
+├── VectorDB/
+│   ├── ChromaDB.py
+│   │   └── Build/load persistent ChromaDB store
+│   ├── qaEngine.py
+│   │   └── Core RAG logic (retrieval, biasing, rerank, context pack)
+│   └── retrieval.py
+│       └── Retrieval utilities and filters
+│
+├── MSKArticlesINDEX/
+│   ├── all_articles.jsonl
+│   │   └── Normalized article metadata
+│   ├── chunks.parquet
+│   │   └── Chunk table (text + metadata)
+│   └── mskneurology.com/
+│       └── Mirrored source HTML (HTTrack)
+│
+├── embeddings/
+│   ├── embeddings.npy
+│   │   └── Text chunk embeddings (generated)
+│   ├── embeddingsImages.npy
+│   │   └── Optional image embeddings (generated)
+│   └── embedding_model.txt
+│       └── Embedding model identifier
+│
+├── chroma_store/
+│   ├── chroma.sqlite3
+│   │   └── ChromaDB metadata
+│   └── <collection-id>/
+│       └── Vector index binaries (generated)
+│
+├── Eval/
+│   ├── build_goldset.py
+│   │   └── Gold set construction
+│   ├── eval_gold.py
+│   │   └── Baseline retrieval evaluation
+│   ├── eval_gold_reranked.py
+│   │   └── Evaluation with LLM reranking
+│   └── plots / csv / json
+│       └── Evaluation artifacts
+│
+├── Evaluation/
+│   └── *.csv
+│       └── Metric histories across runs
+│
+├── goldset_ui/
+│   ├── app.py
+│   │   └── Gold set inspection UI
+│   ├── templates/
+│   ├── static/
+│   └── gold_utils/
+│
+├── runAll.py
+│   └── End-to-end pipeline runner
+├── chunk_editor.py
+│   └── Chunk inspection and repair tools
+│
+└── paper.tex
+    └── LaTeX source of accompanying report
 ```
 
-If your repo root is *already* the `msk_chat/` folder, just treat that as the project root and ignore the wrapper folder name.
+
 
 ---
 
