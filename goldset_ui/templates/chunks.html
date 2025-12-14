@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="m-0">Chunk selector</h2>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary btn-sm" href="/questions">Back to questions (Q)</a>
+  </div>
+</div>
+
+<form method="get" action="/chunks" class="row g-2 mb-3">
+  <div class="col-sm-6 col-md-5">
+    <label class="form-label">Articles (topic)</label>
+    <select class="form-select" name="topic" id="topic">
+      {% for t in topics %}
+        <option value="{{t}}" {% if t==topic %}selected{% endif %}>{{t}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-sm-6 col-md-3">
+    <label class="form-label">Section (optional)</label>
+    <select class="form-select" name="section" id="section">
+      <option value="">(All)</option>
+      {% for s in sections %}
+        <option value="{{s}}" {% if s==section %}selected{% endif %}>{{s}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <label class="form-label">Min words</label>
+    <input class="form-control" type="number" min="0" name="minw" value="{{ minw or 0 }}">
+  </div>
+  <div class="col-6 col-md-2">
+    <label class="form-label">Page size</label>
+    <input class="form-control" type="number" min="1" name="page" value="{{ page or 20 }}">
+  </div>
+</form>
+
+<div class="mb-3">
+  <button class="btn btn-primary" onclick="loadChunks()">Load chunks</button>
+  <button class="btn btn-success" onclick="assignToCurrent()">Assign to current question</button>
+  <small class="ms-2 text-muted">Current QID: <code id="current-qid"></code></small>
+</div>
+
+<div class="row g-3">
+  <div class="col-12">
+    <textarea id="chunk-view" class="form-control" rows="18" readonly placeholder="Loaded chunk text will appear here..."></textarea>
+  </div>
+</div>
+
+<script>
+  // Pull current selection from session
+  const qid = sessionStorage.getItem('gsr.current.qid') || '';
+  document.getElementById('current-qid').textContent = qid || '(none)';
+
+  async function loadChunks(){
+    const params = new URLSearchParams({
+      topic: document.getElementById('topic').value || '',
+      section: document.getElementById('section').value || '',
+      minw: document.querySelector('[name=minw]').value || 0,
+      page: document.querySelector('[name=page]').value || 20
+    });
+    const res = await fetch('/api/chunks?'+params.toString());
+    const data = await res.json();
+    const text = (data.items || []).map(x => x.text).join("\n\n---\n\n");
+    document.getElementById('chunk-view').value = text || '(no chunks matched)';
+    document.dispatchEvent(new CustomEvent('gsr-select-chunk', {detail:{
+      article: params.get('topic'),
+      chunk: (data.items && data.items[0] && data.items[0].id) || null
+    }}));
+  }
+
+  async function assignToCurrent(){
+    const qid = sessionStorage.getItem('gsr.current.qid');
+    if (!qid) { alert('Pick a question first (from the Questions page).'); return; }
+    const res = await fetch('/api/assign', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        id: qid,
+        gt_chunk_ids: [],              // fill as needed by your pipeline
+        chunk_text: document.getElementById('chunk-view').value
+      })
+    });
+    if (res.ok){ alert('Assigned.'); }
+    else { alert('Assign failed.'); }
+  }
+</script>
+
+{% endblock %}

@@ -1,0 +1,101 @@
+<div class="card-body">
+  <h5 class="card-title">❓ {{ item.question }}</h5>
+  <div class="text-muted mb-2">
+    Topic: {{ item.topic }} · Bucket: {{ item.bucket }} · ID: <code>{{ item.id }}</code>
+  </div>
+
+  {% if gold_row %}
+    <div class="mb-3">
+      <div><strong>Current Gold</strong></div>
+      <div class="small">
+        Article: <code>{{ gold_row.source_relpath }}</code> · Section: {{ gold_row.section }} · Chunk: <code>{{ gold_row.chunk_id }}</code>
+      </div>
+      <div class="chunk-text mt-2">{{ gold_row.text | replace('\n','<br>') | safe }}</div>
+    </div>
+  {% else %}
+    <div class="alert alert-warning">No current gold chunk found.</div>
+  {% endif %}
+
+  <hr />
+
+  <form id="chunk-form">
+    <div class="row g-2">
+      <div class="col-md-6">
+        <label class="form-label">Article (free text)</label>
+        <input id="article-path" name="path" class="form-control" value="{{ default_article or '' }}" placeholder="mskneurology.com/.../index.html" />
+        <div class="form-text">Type/paste any path. Selecting from either list will fill this box.</div>
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Suggested articles (topic)</label>
+        <select id="article-suggest" class="form-select">
+          {% if article_options %}
+            {% for p in article_options %}
+              <option value="{{ p }}" {% if p == default_article %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          {% else %}
+            <option value="">(none)</option>
+          {% endif %}
+        </select>
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">All articles</label>
+        <select id="article-all" class="form-select">
+          {% for p in all_articles %}
+            <option value="{{ p }}" {% if p == default_article %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="row g-2 mt-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label">Section (optional)</label>
+        <select id="section" name="section" class="form-select">
+          <option value="">(All)</option>
+          {% for s in sections %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Min words</label>
+        <input id="minw" name="min_words" type="number" class="form-control" value="40" />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Page size</label>
+        <select id="ps" name="page_size" class="form-select">
+          <option>10</option><option selected>20</option><option>30</option><option>50</option>
+        </select>
+      </div>
+      <div class="col-md-2 d-grid">
+        <button class="btn btn-primary"
+                id="load-btn"
+                hx-get="/article"
+                hx-target="#browser"
+                hx-include="#chunk-form"
+                hx-vals='{"qid":"{{ item.id }}","bucket":"{{ item.bucket }}","page":1}'>
+          Load chunks
+        </button>
+      </div>
+    </div>
+  </form>
+
+  <div id="browser"
+       hx-get="/article"
+       hx-trigger="load"
+       hx-target="#browser"
+       hx-include="#chunk-form"
+       hx-vals='{"qid":"{{ item.id }}","bucket":"{{ item.bucket }}","page":1}'>
+  </div>
+</div>
+
+<script>
+  (function(){
+    const inp = document.getElementById('article-path');
+    const selSug = document.getElementById('article-suggest');
+    const selAll = document.getElementById('article-all');
+
+    if (selSug && inp) selSug.addEventListener('change', () => { if (selSug.value) inp.value = selSug.value; });
+    if (selAll && inp) selAll.addEventListener('change', () => { if (selAll.value) inp.value = selAll.value; });
+  })();
+</script>

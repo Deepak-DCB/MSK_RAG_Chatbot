@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h5 class="mb-3">Goldset Reviewer Dashboard</h5>
+
+  <div class="row g-3 mb-3">
+    <div class="col-lg-6">
+      <label class="form-label">Topic</label>
+      <select class="form-select" id="topic"
+              hx-get="/table" hx-target="#qtable"
+              hx-trigger="change, keyup from:#search delay:300ms"
+              hx-include="#topic,#bucket,#search">
+        {% for t in topics %}<option value="{{t}}">{{t}}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-lg-6">
+      <label class="form-label">Bucket</label>
+      <select class="form-select" id="bucket"
+              hx-get="/table" hx-target="#qtable"
+              hx-trigger="change" hx-include="#topic,#bucket,#search">
+        <option value="">(All)</option>
+        {% for b in buckets %}<option value="{{b}}">{{b}}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="row mb-3">
+    <div class="col-12">
+      <label class="form-label">Search</label>
+      <input id="search" class="form-control" type="text" placeholder="Find question text…"
+             hx-get="/table" hx-target="#qtable"
+             hx-trigger="keyup changed delay:300ms"
+             hx-include="#topic,#bucket,#search" />
+    </div>
+  </div>
+
+  <div class="row gx-3">
+    <!-- Wider table column -->
+    <div class="col-lg-7">
+      <div id="qtable" hx-get="/table" hx-trigger="load" class="card"></div>
+    </div>
+
+    <!-- Detail column -->
+    <div class="col-lg-5">
+      <div id="qdetail" class="card p-3 detail-pane">Select a question…</div>
+    </div>
+  </div>
+{% endblock %}
