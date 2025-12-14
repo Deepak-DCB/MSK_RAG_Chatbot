@@ -1,0 +1,56 @@
+# ----------------------------
+# Secrets
+# ----------------------------
+.env
+.streamlit/secrets.toml
+
+# ----------------------------
+# Python
+# ----------------------------
+.venv/
+__pycache__/
+*.pyc
+
+# ----------------------------
+# Large generated artifacts
+# ----------------------------
+chunks.parquet
+articles.txt
+missing_report.txt
+chroma_store/
+embeddings/
+*.npy
+*.sqlite3
+
+# Full corpus mirror (do not publish)
+MSKArticlesINDEX/mskneurology.com/
+
+# Logs / diagnostics
+*.jsonl
+chat_events.jsonl
+resp_events.jsonl
+responses_stream_events_*.jsonl
+diag_*.jsonl
+eval_results*.json
+app.py
+architecture.html
+BAAIL1.5.png
+chunk_editor.py
+allmpnetbasev2T.png
+a.ipynb
+intfloatT.png
+mixbread.png
+mixbread+SentenceAware.png
+runAll.py
+
+# Archives
+*.zip
+
+# OS / editor noise
+.DS_Store
+.vscode/
+.idea/
+
+#paper
+paper.tex
+
