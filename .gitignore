@@ -23,7 +23,7 @@ embeddings/
 *.sqlite3
 
 # Full corpus mirror (do not publish)
-MSKArticlesINDEX/mskneurology.com/
+MSKArticlesINDEX/
 
 # Logs / diagnostics
 *.jsonl
