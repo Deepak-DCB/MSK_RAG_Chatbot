@@ -53,6 +53,8 @@ For each user query:
 - **Telemetry by default:** Retrieval behavior is surfaced in the UI to enable qualitative analysis.
 - **CPU-only operation:** The system is designed to run on a single machine without specialized hardware.
 
+<img width="2879" height="1799" alt="image" src="https://github.com/user-attachments/assets/a5cf6d57-edfe-41cc-a4ae-5779213506d7" />
+
 ---
 
 ## Repository structure
