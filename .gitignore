@@ -17,7 +17,6 @@ __pycache__/
 chunks.parquet
 articles.txt
 missing_report.txt
-chroma_store/
 embeddings/
 *.npy
 *.sqlite3
