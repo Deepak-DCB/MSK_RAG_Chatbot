@@ -14,11 +14,9 @@ __pycache__/
 # ----------------------------
 # Large generated artifacts
 # ----------------------------
-chunks.parquet
+
 articles.txt
 missing_report.txt
-embeddings/
-*.npy
 
 # Full corpus mirror (do not publish)
 MSKArticlesINDEX/
