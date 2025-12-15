@@ -19,7 +19,8 @@ articles.txt
 missing_report.txt
 
 # Full corpus mirror (do not publish)
-MSKArticlesINDEX/
+MSKArticlesINDEX/*
+!MSKArticlesINDEX/chunks.parquet
 
 # Logs / diagnostics
 *.jsonl
