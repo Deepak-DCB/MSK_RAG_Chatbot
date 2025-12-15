@@ -81,6 +81,43 @@ For each user query:
 
 <img width="2879" height="1799" alt="Streamlit UI with retrieval telemetry" src="https://github.com/user-attachments/assets/a5cf6d57-edfe-41cc-a4ae-5779213506d7" />
 
+
+---
+
+## Local setup 
+
+This project is intended primarily as a **retrieval systems engineering case study**.  
+Running it locally is optional and aimed at inspection rather than end-user deployment.
+
+### Requirements
+- Python 3.10+
+- An OpenAI API key (`OPENAI_API_KEY`) in .env
+- Prebuilt embedding and vector store artifacts (by using the process mentioned below)
+
+### Typical local workflow
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# (Optional) Rebuild corpus artifacts
+
+#Create chunks.parquet with:
+python Text_Extraction/textExtract.py
+#OR use chunks.parquet from MSKArticlesINDEX/
+
+#Create embeddings npy files with chunks.parquet:
+python Embedding/embedding.py
+#OR use embeddings.npy from embeddings
+
+#Create chroma_store with npy files:
+python VectorDB/ChromaDB.py
+
+# Launch the Streamlit UI
+streamlit run chatbot/mskbot.py
+#This calls qaEngine to run the chatbot. 
+```
+
 ## Repository structure
 
 ```text
