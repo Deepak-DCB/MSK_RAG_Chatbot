@@ -6,7 +6,10 @@
 - Domain-constrained RAG system for musculoskeletal neurology and biomechanics  
 - Retrieval-first design with deterministic context assembly and explicit heuristics  
 - Agentic query classification and rewrite to align user language with biomechanical mechanisms  
-- No fine-tuning, no end-to-end black box; emphasis on inspectability and failure analysis  
+- No fine-tuning, no end-to-end black box; emphasis on inspectability and failure analysis
+
+This is: A retrieval systems engineering case study in a constrained clinical domain.
+This is not: A diagnostic tool, autonomous clinician, or end-to-end learned medical model.
 
 This repository implements a **retrieval-augmented question answering (RAG) system** for answering **mechanism-level clinical questions** grounded in a corpus derived from **MSKNeurology.com** (Kjetil Larsen).
 
@@ -52,10 +55,12 @@ For each user query:
 1. **Agentic query classification** assigns the query to a biomechanical category (benign, MSKNeurology-style syndrome, rare/serious, or unclear).
 2. The query is **rewritten into biomechanics-aligned language** to improve dense retrieval alignment with the corpus.
 3. Dense retrieval is performed against the persistent vector store.
-4. **Domain-specific heuristic biasing** adjusts distances to promote mechanism-dense sections (e.g., anatomy, biomechanics, assessment) and penalize narrative or low-yield content (e.g., case reports).
-5. An **optional LLM-based reranker** reorders chunks *within each source article* rather than globally.
-6. Retrieved chunks are **grouped by source**, prioritized by section, and **deterministically packed under a fixed token budget**, including controlled neighbor headroom.
-7. A grounded answer is generated **strictly from the assembled context**, with no external knowledge injection.
+4. **Domain-specific heuristic biasing** adjusts distances to promote mechanism-dense sections (e.g., anatomy, biomechanics, assessment) and penalize narrative or low-yield content (e.g., case reports). Long-form clinical text has structure that dense embeddings alone do not respect. Section headers, narrative vs mechanism content, and article context matter. Heuristics encode domain priors explicitly so failure modes are inspectable
+
+Reranking is deliberately constrained to preserve article coherence
+6. An **optional LLM-based reranker** reorders chunks *within each source article* rather than globally.
+7. Retrieved chunks are **grouped by source**, prioritized by section, and **deterministically packed under a fixed token budget**, including controlled neighbor headroom.
+8. A grounded answer is generated **strictly from the assembled context**, with no external knowledge injection.
 
 <img width="6044" height="3124" alt="MSK RAG architecture diagram" src="https://github.com/user-attachments/assets/2b376e20-653e-4885-b228-b4ec330d98f0" />
 
