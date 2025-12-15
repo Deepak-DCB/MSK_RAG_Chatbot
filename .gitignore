@@ -19,7 +19,6 @@ articles.txt
 missing_report.txt
 embeddings/
 *.npy
-*.sqlite3
 
 # Full corpus mirror (do not publish)
 MSKArticlesINDEX/
