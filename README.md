@@ -86,6 +86,5 @@ msk_chat/
 ├── Eval/                         # Evaluation scripts and plots
 ├── Evaluation/                   # Metric histories across runs
 │
-├── goldset_ui/                   # Gold set inspection and annotation UI
-├── runAll.py                     # End-to-end pipeline runner
-└── chunk_editor.py               # Chunk inspection and repair tooling
+├── reviewGoldset.py              # Gold set inspection and annotation UI
+└── chunk_editor.py               # Chunk repair 
