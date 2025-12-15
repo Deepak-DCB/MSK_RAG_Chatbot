@@ -117,7 +117,25 @@ python VectorDB/ChromaDB.py
 streamlit run chatbot/mskbot.py
 #This calls qaEngine to run the chatbot. 
 ```
+A hosted Streamlit demo is available:
 
+https://mskchat.streamlit.app/
+
+Important limitations:
+
+- The hosted demo does not include the full persistent vector store.
+- API keys are not provided in the public deployment.
+- Retrieval may therefore return no results or be partially disabled.
+
+The demo is intended to illustrate:
+
+- The user interface
+- Retrieval telemetry and observability
+- Query classification and rewriting
+- System structure and flow
+  
+  It is not intended as a fully functional public clinical tool.
+  
 ## Repository structure
 
 ```text
