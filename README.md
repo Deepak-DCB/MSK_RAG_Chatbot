@@ -3,13 +3,15 @@
 
 ## TL;DR
 
+**This is:** A retrieval systems engineering case study in a constrained clinical domain.  
+**This is not:** A diagnostic tool, autonomous clinician, or end-to-end learned medical model.
+
 - Domain-constrained RAG system for musculoskeletal neurology and biomechanics  
 - Retrieval-first design with deterministic context assembly and explicit heuristics  
 - Agentic query classification and rewrite to align user language with biomechanical mechanisms  
 - No fine-tuning, no end-to-end black box; emphasis on inspectability and failure analysis
 
-**This is:** A retrieval systems engineering case study in a constrained clinical domain.  
-**This is not:** A diagnostic tool, autonomous clinician, or end-to-end learned medical model.
+
 
 This repository implements a **retrieval-augmented question answering (RAG) system** for answering **mechanism-level clinical questions** grounded in a corpus derived from **MSKNeurology.com** (Kjetil Larsen).
 
