@@ -17,7 +17,7 @@ This repository implements a **retrieval-augmented question answering (RAG) syst
 
 Rather than treating the LLM as an end-to-end reasoning engine, the system treats **answer quality as an effect of retrieval quality**, and so is designed to expose, constrain, and debug each step of the retrieval and context-selection process.
 
-The system surfaces retrieved chunks, distances, heuristic adjustments, reranking behavior, token budgets, latency, and confidence signals so that outputs can be **inspected, audited, and failure-mode analyzed**, not merely consumed.
+The system surfaces retrieved chunks, distances, heuristic adjustments, reranking behavior, token budgets, latency, and confidence signals so that outputs can be **inspected, audited, and failure-mode analyzed**.
 
 > **Note:** This system is not a medical device and does not provide diagnoses or treatment recommendations. It is an educational and research-oriented explainer grounded strictly in retrieved corpus content.
 
@@ -27,7 +27,7 @@ The system surfaces retrieved chunks, distances, heuristic adjustments, rerankin
 
 Musculoskeletal neurology is a narrow domain where valid explanations depend on **anatomy, biomechanics, and neurovascular space**, typically described in long-form clinical articles rather than structured knowledge bases.
 
-General-purpose language models frequently hallucinate or over-generalize in this domain when used without strong retrieval constraints, particularly when asked “why” or “mechanism” questions.
+General-purpose language models frequently hallucinate or over-generalize in this domain when used without strong retrieval constraints.
 
 This project explores how far **explicit retrieval design, deterministic context assembly, and domain-encoded heuristics**—rather than increasingly complex prompting or fine-tuning—can improve answer traceability, interpretability, and robustness in a specialized clinical corpus.
 
@@ -47,7 +47,7 @@ The system is structured as a **three-stage pipeline**: offline corpus processin
 ### 2. Persistent retrieval infrastructure
 
 - Dense embeddings are generated for all chunks using a **SentenceTransformers-compatible embedding model** with L2-normalized vectors.
-- Embeddings and metadata are stored in a **persistent ChromaDB collection**, rebuilt explicitly via a standalone builder script.
+- Embeddings and metadata are stored in a **persistent ChromaDB collection**, rebuilt with a standalone builder script.
 - All retrieval artifacts are **immutable at query time**, enabling reproducible behavior across runs.
 
 ### 3. Query-time reasoning
@@ -77,7 +77,7 @@ For each user query:
 - **Deterministic context assembly:** Token budgets, per-source limits, and selection rules are fixed and inspectable.
 - **Per-source reranking:** Optional LLM reranking operates within articles to preserve topical coherence.
 - **Telemetry by default:** Retrieval confidence, timing, token usage, and selected sources are exposed in the UI.
-- **CPU-only execution:** The system is designed to run locally without GPUs or specialized hardware; LLM usage is limited to query-time reasoning.
+- **CPU-only execution:** The system is designed to run locally without GPUs or specialized hardware, and LLM usage is limited to query-time reasoning.
 - **Reproducible by construction:** Immutable vector stores, fixed retrieval rules, and deterministic context packing yield identical behavior for identical inputs.
 
 
