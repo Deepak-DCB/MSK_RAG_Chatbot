@@ -15,7 +15,7 @@
 
 This repository implements a **retrieval-augmented question answering (RAG) system** for answering **mechanism-level clinical questions** grounded in a corpus derived from **MSKNeurology.com** (Kjetil Larsen).
 
-Rather than treating the language model as an end-to-end reasoning engine, the system treats **answer quality as a downstream effect of retrieval quality**, and is designed to expose, constrain, and debug each step of the retrieval and context-selection process.
+Rather than treating the LLM as an end-to-end reasoning engine, the system treats **answer quality as an effect of retrieval quality**, and so is designed to expose, constrain, and debug each step of the retrieval and context-selection process.
 
 The system surfaces retrieved chunks, distances, heuristic adjustments, reranking behavior, token budgets, latency, and confidence signals so that outputs can be **inspected, audited, and failure-mode analyzed**, not merely consumed.
 
