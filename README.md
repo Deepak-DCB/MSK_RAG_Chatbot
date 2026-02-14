@@ -1,5 +1,5 @@
 # MSK RAG Chatbot  
-### Mechanism-Level Clinical Question Answering over MSK Neurology (Retrieval-Augmented Generation)
+### Biomechanics Clinical Question Answering using MSK Neurology (Retrieval-Augmented Generation)
 
 ## TL;DR
 
