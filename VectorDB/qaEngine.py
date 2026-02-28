@@ -33,7 +33,6 @@ dotenv.load_dotenv()
 from openai import OpenAI
 import chromadb
 import numpy as np
-import pandas as pd
 
 # Embedding model constant (must match what was used to build chroma_store)
 EMBED_MODEL = "text-embedding-3-small"
