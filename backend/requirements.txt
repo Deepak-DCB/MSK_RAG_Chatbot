@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+openai>=1.0
+chromadb>=0.4
+numpy>=1.24
+tiktoken>=0.5
+python-dotenv>=1.0

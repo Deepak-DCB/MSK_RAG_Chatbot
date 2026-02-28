@@ -34,8 +34,9 @@ from openai import OpenAI
 import chromadb
 import numpy as np
 import pandas as pd
-import torch
-from sentence_transformers import SentenceTransformer
+
+# Embedding model constant (must match what was used to build chroma_store)
+EMBED_MODEL = "text-embedding-3-small"
 
 
 
@@ -330,61 +331,46 @@ def words_to_tokens_heuristic(words_budget: int) -> int:
     return int(round(words_budget * 1.33))
 
 
-def detect_embed_model() -> str:
-    alt_txt = PROJECT_ROOT / "embeddings" / "embedding_model.txt"
-    if alt_txt.exists():
-        return alt_txt.read_text(encoding="utf-8").strip()
-    return "mixedbread-ai/mxbai-embed-large-v1"
+# ── OpenAI client singleton ──────────────────────────────────────────────────
+
+_openai_client: Optional[OpenAI] = None
+
+def _get_openai_client() -> OpenAI:
+    global _openai_client
+    if _openai_client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set in environment variables.")
+        _openai_client = OpenAI(api_key=api_key)
+    return _openai_client
+
+
+def openai_embed(texts: list[str]) -> list[list[float]]:
+    """Embed one or more texts via the OpenAI embeddings API."""
+    client = _get_openai_client()
+    resp = client.embeddings.create(model=EMBED_MODEL, input=texts)
+    return [d.embedding for d in resp.data]
 
 
 class Backend:
     def __init__(self) -> None:
-        self.embedder: Optional[SentenceTransformer] = None
         self.collection = None
-
-
-    def load_embedder(self, model_name: Optional[str] = None) -> SentenceTransformer:
-        if self.embedder is not None:
-            return self.embedder
-        model_name = model_name or detect_embed_model()
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.embedder = SentenceTransformer(model_name, device=device)
-        _ = self.embedder.encode(["warmup"])
-        return self.embedder
 
     def load_collection(self) -> Any:
         if self.collection is not None:
             return self.collection
-        import os
         os.environ["CHROMA_DATA_PATH"] = PERSIST_DIR
-        try:
-            client = chromadb.PersistentClient(path=PERSIST_DIR)
-            self.collection = client.get_or_create_collection(COLLECTION_NAME)
-        except Exception as e:
-            chunks_path = PROJECT_ROOT / "MSKArticlesINDEX" / "chunks.parquet"
-            emb_path = PROJECT_ROOT / "embeddings" / "embeddings.npy"
-            if not emb_path.exists():
-                raise RuntimeError(f"embeddings.npy not found at {emb_path}") from e
-            chunks = pd.read_parquet(chunks_path)
-            embs = np.load(emb_path)
-            client = chromadb.Client()
-            self.collection = client.create_collection(COLLECTION_NAME)
-            self.collection.add(
-                embeddings=embs.tolist(),
-                documents=chunks["embed_text"].tolist(),
-                metadatas=chunks.drop(columns=["embed_text"]).to_dict(orient="records"),
-                ids=[str(i) for i in range(len(chunks))],
-            )
+        client = chromadb.PersistentClient(path=PERSIST_DIR)
+        self.collection = client.get_or_create_collection(COLLECTION_NAME)
         return self.collection
-
-
 
 
 _backend = Backend()
 
 
-def encode_query(text: str, model: SentenceTransformer) -> np.ndarray:
-    return model.encode(text, normalize_embeddings=True)
+def encode_query(text: str) -> list[list[float]]:
+    """Embed a single query string via OpenAI and return as nested list for Chroma."""
+    return openai_embed([text])
 
 NARRATIVE_SECTION_PATTERNS = [
     "case report",
@@ -663,7 +649,6 @@ def maybe_rerank(
 def select_relevant_history(
     history: List[Dict[str, str]],
     query: str,
-    embedder: SentenceTransformer,
     *,
     max_turns: int,
     max_entries: int,
@@ -671,7 +656,7 @@ def select_relevant_history(
     scale: float,
     dist_penalty: float,
 ) -> List[Dict[str, Any]]:
-    if not history or embedder is None:
+    if not history:
         return []
 
     recent = history[-max_turns:]
@@ -685,11 +670,19 @@ def select_relevant_history(
     if not entries:
         return []
 
-    q_emb = embedder.encode([query], normalize_embeddings=True)[0]
+    # Embed query + history texts in one batch via OpenAI
     h_texts = [f"[{role.upper()}] {text}" for _, role, text in entries]
-    h_embs = embedder.encode(h_texts, normalize_embeddings=True)
+    all_texts = [query] + h_texts
+    all_embs = openai_embed(all_texts)
 
-    sims = (h_embs @ q_emb).tolist()
+    q_emb = np.array(all_embs[0])
+    h_embs = np.array(all_embs[1:])
+
+    # Normalize for cosine similarity
+    q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-9)
+    h_norms = h_embs / (np.linalg.norm(h_embs, axis=1, keepdims=True) + 1e-9)
+
+    sims = (h_norms @ q_norm).tolist()
     weights = [decay_factor ** (len(entries) - 1 - i) for i, _, _ in entries]
     weighted = [float(s) * float(w) * float(scale) for s, w in zip(sims, weights)]
 
@@ -960,11 +953,10 @@ def run_qa(
         else words_to_tokens_heuristic(cfg.budget_words)
     )
 
-    embedder = _backend.load_embedder()
     coll = _backend.load_collection()
 
     t0 = time.time()
-    q_emb = encode_query(question, embedder)
+    q_emb = encode_query(question)
     raw = coll.query(query_embeddings=q_emb, n_results=cfg.retrieval_pool)
     retrieval_time = time.time() - t0
 
@@ -1012,7 +1004,6 @@ def run_qa(
             memory_docs = select_relevant_history(
                 history,
                 question,
-                embedder,
                 max_turns=cfg.history_max_turns,
                 max_entries=cfg.history_top_entries,
                 decay_factor=cfg.history_decay,

@@ -1,1 +1,1 @@
-mixedbread-ai/mxbai-embed-large-v1
+text-embedding-3-small

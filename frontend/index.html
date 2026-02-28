@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- SEO -->
+  <title>MSK Triage Chatbot</title>
+  <meta name="description" content="Evidence-grounded RAG chatbot for musculoskeletal neurology. Ask about symptoms, biomechanics, and clinical patterns." />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <h1>MSK Triage Chatbot</h1>
+      <p>Evidence-grounded assistant · MSK Neurology corpus</p>
+    </header>
+
+    <!-- Chat Area -->
+    <main class="chat-area" id="chat-area">
+      <!-- Messages inserted here by JS -->
+    </main>
+
+    <!-- Input -->
+    <div class="input-area">
+      <div class="input-row">
+        <textarea
+          id="user-input"
+          placeholder="Ask about symptoms, structures, or treatments…"
+          rows="1"
+        ></textarea>
+        <button class="send-btn" id="send-btn" aria-label="Send">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <span><span class="status-dot"></span> <span id="status-text">Connecting…</span></span>
+      <span>Powered by RAG · OpenAI</span>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

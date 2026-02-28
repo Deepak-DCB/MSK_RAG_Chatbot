@@ -54,4 +54,4 @@ Evaluation/
 Eval/
 
 goldset_ui/
-chroma_store/
+# chroma_store/ — UN-IGNORED: must be committed for Render deployment

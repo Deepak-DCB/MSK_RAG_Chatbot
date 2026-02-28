@@ -17,7 +17,7 @@ import html
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT / "VectorDB"))
 
-from qaEngine import run_qa, agentic_run, detect_embed_model, _backend, QAConfig  # noqa
+from qaEngine import run_qa, agentic_run, _backend, QAConfig  # noqa
 
 
 # ----------------------------------------------------------------------
@@ -119,14 +119,11 @@ st.caption("Evidence-grounded assistant using the MSK Neurology corpus")
 
 @st.cache_resource(show_spinner=True)
 def load_backend():
-    model_name = detect_embed_model()
-    st.write(f"Loading embedder: `{model_name}`")
-    embedder = _backend.load_embedder(model_name)
     collection = _backend.load_collection()
-    return embedder, collection
+    return collection
 
 
-EMBEDDER, COLLECTION = load_backend()
+COLLECTION = load_backend()
 
 
 # ----------------------------------------------------------------------
