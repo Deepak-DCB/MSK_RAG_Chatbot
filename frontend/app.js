@@ -1,7 +1,7 @@
 // ── MSK Triage Chatbot — Frontend Logic ──────────────────────────────────────
 
 // ⚠️ UPDATE THIS to your Render backend URL after deploying
-const API_URL = "https://your-render-app.onrender.com";
+const API_URL = "https://msk-rag-chatbot.onrender.com";
 
 // ── State ────────────────────────────────────────────────────────────────────
 let history = [];
