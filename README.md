@@ -46,9 +46,10 @@ The system is structured as a **three-stage pipeline**: offline corpus processin
 
 ### 2. Persistent retrieval infrastructure
 
-- Dense embeddings are generated for all chunks using a **SentenceTransformers-compatible embedding model** with L2-normalized vectors.
-- Embeddings and metadata are stored in a **persistent ChromaDB collection**, rebuilt with a standalone builder script.
+- Dense embeddings are generated for all chunks using **OpenAI `text-embedding-3-small`** (1536-dim), called via the embeddings API.
+- Embeddings and metadata are stored in a **persistent ChromaDB collection** (~29 MB), committed to the repository and rebuilt with a standalone builder script.
 - All retrieval artifacts are **immutable at query time**, enabling reproducible behavior across runs.
+- No local embedding model is required at runtime — query embedding uses the same OpenAI API.
 
 ### 3. Query-time reasoning
 
@@ -77,12 +78,40 @@ For each user query:
 - **Deterministic context assembly:** Token budgets, per-source limits, and selection rules are fixed and inspectable.
 - **Per-source reranking:** Optional LLM reranking operates within articles to preserve topical coherence.
 - **Telemetry by default:** Retrieval confidence, timing, token usage, and selected sources are exposed in the UI.
-- **CPU-only execution:** The system is designed to run locally without GPUs or specialized hardware, and LLM usage is limited to query-time reasoning.
+- **No local model required:** All embedding and generation is handled by OpenAI APIs. No PyTorch, no GPU, under 200 MB runtime memory.
 - **Reproducible by construction:** Immutable vector stores, fixed retrieval rules, and deterministic context packing yield identical behavior for identical inputs.
 
 
 <img width="2879" height="1799" alt="Streamlit UI with retrieval telemetry" src="https://github.com/user-attachments/assets/a5cf6d57-edfe-41cc-a4ae-5779213506d7" />
 
+
+---
+
+## Live deployment
+
+The system is deployed as a split architecture for free-tier hosting:
+
+```
+Browser → Vercel (static frontend) → Render (FastAPI backend) → ChromaDB + OpenAI API
+```
+
+- **Frontend** (Vercel Free): Static HTML/CSS/JS chat interface at `frontend/`
+- **Backend** (Render Free): FastAPI app at `backend/main.py` — runs `qaEngine.agentic_run()` against the committed `chroma_store/`
+- **Vector store**: ~29 MB persistent ChromaDB committed to the repository (no rebuild on deploy)
+- **Embedding + generation**: OpenAI API only — no local models, no PyTorch, under 200 MB runtime memory
+
+Safety controls (public-facing):
+- Max 1000 characters per question
+- Max 5 conversation history turns
+- Max 1000 output tokens
+- In-memory rate limit: 5 requests/min per IP
+
+### Deployment steps
+
+1. **Render**: Connect GitHub repo → auto-detects `render.yaml` → set `OPENAI_API_KEY` env var → deploy  
+2. **Vercel**: Connect GitHub repo → root directory: `frontend/` → framework: None → deploy  
+3. Update `frontend/app.js` with the Render backend URL  
+4. Both auto-deploy on `git push`
 
 ---
 
@@ -93,79 +122,73 @@ Running it locally is optional and aimed at inspection rather than end-user depl
 
 ### Requirements
 - Python 3.10+
-- An OpenAI API key (`OPENAI_API_KEY`) in .env
-- Prebuilt embedding and vector store artifacts (by using the process mentioned below)
+- An OpenAI API key (`OPENAI_API_KEY`) in `.env`
+- The committed `chroma_store/` (included in the repository)
 
-### Typical local workflow
+### Run the FastAPI backend locally
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# (Optional) Rebuild corpus artifacts
-
-#Create chunks.parquet with:
-python Text_Extraction/textExtract.py
-#OR use chunks.parquet from MSKArticlesINDEX/
-
-#Create embeddings npy files with chunks.parquet:
-python Embedding/embedding.py
-#OR use embeddings.npy from embeddings
-
-#Create chroma_store with npy files:
-python VectorDB/ChromaDB.py
-
-# Launch the Streamlit UI
-streamlit run chatbot/mskbot.py
-#This calls qaEngine to run the chatbot. 
+pip install -r backend/requirements.txt
+uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
-A hosted Streamlit demo is available:
 
-https://mskchat.streamlit.app/
+### Run the Streamlit UI locally (development)
 
-Important limitations:
+```bash
+pip install -r requirements.txt
+streamlit run chatbot/mskbot.py
+```
 
-- The hosted demo does not include the full persistent vector store.
-- API keys are not provided in the public deployment.
-- Retrieval may therefore return no results or be partially disabled.
+### (Optional) Rebuild corpus artifacts from scratch
 
-The demo is intended to illustrate:
+```bash
+# 1. Create chunks.parquet from HTML articles
+python Text_Extraction/textExtract.py
 
-- The user interface
-- Retrieval telemetry and observability
-- Query classification and rewriting
-- System structure and flow
-  
-  It is not intended as a fully functional public clinical tool.
-  
+# 2. Rebuild chroma_store with OpenAI embeddings
+python scripts/rebuild_chroma_openai.py
+```
+
+---
+
 ## Repository structure
 
 ```text
 msk_chat/
+├── backend/
+│   ├── main.py                   # FastAPI app (Render deployment)
+│   └── requirements.txt          # Production-only dependencies
+│
+├── frontend/
+│   ├── index.html                # Chat UI
+│   ├── app.js                    # Frontend logic
+│   ├── styles.css                # Dark theme styles
+│   └── vercel.json               # Vercel config
+│
 ├── chatbot/
-│   └── mskbot.py                 # Streamlit UI and interaction layer
+│   └── mskbot.py                 # Streamlit UI (local development)
+│
+├── VectorDB/
+│   ├── qaEngine.py               # Core RAG logic (retrieval, biasing, reranking, packing)
+│   ├── ChromaDB.py               # Vector store builder
+│   └── retrieval.py              # Retrieval utilities
 │
 ├── Text_Extraction/
 │   └── textExtract.py            # HTML cleaning and token-aware chunking
 │
 ├── Embedding/
-│   └── embedding.py              # Embedding generation
+│   └── embedding.py              # Embedding generation (offline)
 │
-├── VectorDB/
-│   ├── ChromaDB.py               # Persistent vector store construction/loading
-│   ├── qaEngine.py               # Core RAG logic (retrieval, biasing, reranking, packing)
-│   └── retrieval.py              # Retrieval utilities
+├── scripts/
+│   └── rebuild_chroma_openai.py  # One-time script: rebuild chroma with OpenAI embeddings
 │
 ├── MSKArticlesINDEX/
-│   ├── all_articles.jsonl        # Article-level metadata
 │   ├── chunks.parquet            # Chunk table with text and metadata
 │   └── mskneurology.com/         # Offline HTML mirror
 │
-├── embeddings/                   # Generated embedding artifacts
-├── chroma_store/                 # Persistent ChromaDB store
+├── chroma_store/                 # Persistent ChromaDB store (committed, ~29 MB)
+├── embeddings/                   # Embedding artifacts and model metadata
 │
-├── Eval/                         # Evaluation scripts and plots
-├── Evaluation/                   # Metric histories across runs
-│
-├── reviewGoldset.py              # Gold set inspection and annotation UI
-└── chunk_editor.py               # Chunk repair 
+├── render.yaml                   # Render deployment blueprint
+├── requirements.txt              # Full local dependencies (includes Streamlit)
+└── README.md
