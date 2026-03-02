@@ -29,10 +29,18 @@ app = FastAPI(
 )
 
 # ── CORS — allow Vercel frontend ──────────────────────────────────────────────
-ALLOWED_ORIGINS = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:3000,http://localhost:5500,http://127.0.0.1:5500"
-).split(",")
+ALLOWED_ORIGINS = [
+    "https://msk-rag-chatbot.vercel.app",
+    "https://msk-triage-chatbot.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+]
+
+# Add any extra origins from env var
+extra = os.getenv("CORS_ORIGINS", "")
+if extra:
+    ALLOWED_ORIGINS.extend([o.strip() for o in extra.split(",") if o.strip()])
 
 app.add_middleware(
     CORSMiddleware,
