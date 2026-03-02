@@ -832,6 +832,88 @@ Return ONLY the rewritten query, no commentary.
     return refined.strip()
 
 
+# ── Vague-query detection ─────────────────────────────────────────────────────
+
+_BODY_PARTS = {
+    "neck", "shoulder", "back", "spine", "hip", "knee", "ankle", "foot", "feet",
+    "wrist", "elbow", "hand", "finger", "thumb", "toe", "rib", "ribcage",
+    "chest", "pelvis", "groin", "jaw", "tmj", "head", "skull", "clavicle",
+    "scapula", "scapular", "cervical", "thoracic", "lumbar", "sacral", "sacrum",
+    "coccyx", "tailbone", "trapezius", "deltoid", "bicep", "tricep", "quad",
+    "hamstring", "calf", "calves", "glute", "rotator", "labrum", "meniscus",
+    "disc", "disk", "facet", "si joint", "sacroiliac", "sternum", "acromion",
+    "forearm", "shin", "thigh", "arm", "leg", "upper back", "lower back",
+    "mid back", "scalene", "rhomboid", "levator", "pec", "lat", "oblique",
+    "atlas", "axis", "c1", "c2", "c3", "c4", "c5", "c6", "c7",
+    "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t11", "t12",
+    "l1", "l2", "l3", "l4", "l5", "s1", "s2",
+}
+
+_SYMPTOM_WORDS = {
+    "numbness", "tingling", "weakness", "stiffness", "clicking", "popping",
+    "grinding", "burning", "sharp", "dull", "ache", "aching", "throb",
+    "throbbing", "radiating", "shooting", "stabbing", "cramping", "spasm",
+    "swelling", "swollen", "tender", "sore", "soreness", "tightness", "tight",
+    "limited", "restricted", "catching", "locking", "giving way", "instability",
+    "pinching", "pressure", "heaviness", "fatigue", "weakness", "paresthesia",
+    "dysfunction", "dyskinesis", "impingement", "radiculopathy", "neuropathy",
+    "headache", "migraine", "dizziness", "vertigo", "referred",
+}
+
+_CLARIFICATION_RESPONSE = (
+    "I'd like to help, but I need a bit more detail to give you an accurate, "
+    "evidence-grounded answer.\n\n"
+    "Could you tell me:\n\n"
+    "1. **Where** exactly is the pain or discomfort? (e.g., left neck, right shoulder, lower back)\n"
+    "2. **What does it feel like?** (e.g., sharp, dull ache, tingling, stiffness)\n"
+    "3. **When** does it happen? (e.g., sitting at a desk, overhead reaching, after exercise)\n\n"
+    "The more specific you are, the better I can match your concern to the "
+    "MSK Neurology evidence base."
+)
+
+_FILLER_WORDS = {"i", "my", "me", "the", "a", "an", "is", "it", "have", "has",
+                 "been", "am", "are", "was", "were", "do", "does", "did",
+                 "hello", "hi", "hey", "help", "please", "thanks", "thank",
+                 "some", "very", "really", "just", "also", "and", "or", "but",
+                 "in", "on", "at", "to", "for", "of", "with", "from", "so",
+                 "can", "could", "would", "should", "there", "here", "this",
+                 "that", "what", "how", "why", "when", "where", "who"}
+
+
+def _is_vague_query(question: str) -> bool:
+    """Return True if the question lacks enough anatomical/symptom specificity."""
+    q_lower = question.lower()
+    words = set(re.findall(r"[a-z0-9]+", q_lower))
+
+    # Check for body parts (including multi-word like "lower back", "si joint")
+    has_body_part = any(bp in q_lower for bp in _BODY_PARTS)
+
+    # Check for symptom descriptors
+    has_symptom = bool(words & _SYMPTOM_WORDS)
+
+    # If both are missing and the query has few meaningful words → vague
+    meaningful_words = words - _FILLER_WORDS
+    # "pain" alone doesn't count as enough specificity
+    meaningful_no_pain = meaningful_words - {"pain", "hurt", "hurts", "hurting", "problem", "issue", "wrong"}
+
+    if has_body_part and has_symptom:
+        return False  # Clearly specific
+    if has_body_part and len(meaningful_words) >= 3:
+        return False  # Body part + some context
+    if has_symptom and len(meaningful_words) >= 4:
+        return False  # Symptom + enough context
+
+    # If there's at least one body part and >5 meaningful words, it's probably fine
+    if has_body_part and len(meaningful_no_pain) >= 3:
+        return False
+
+    # Everything else with fewer than 5 meaningful words is too vague
+    if len(meaningful_no_pain) < 3:
+        return True
+
+    return False
+
+
 def agentic_run(
     question: str,
     cfg: Optional[QAConfig] = None,
@@ -839,6 +921,28 @@ def agentic_run(
     on_token = None,
 ):
     cfg = cfg or QAConfig()
+
+    # Step 0: check for vague queries — ask for clarification instead of assuming
+    if _is_vague_query(question):
+        clarification = _CLARIFICATION_RESPONSE
+        if on_token:
+            on_token(clarification)
+        return {
+            "answer": clarification,
+            "citations": [],
+            "contexts": [],
+            "retrieval_confidence": 0.0,
+            "retrieval_time": 0.0,
+            "generation_time": 0.0,
+            "prompt_tokens": 0,
+            "output_tokens": 0,
+            "context_tokens": 0,
+            "question_tokens": count_tokens(question),
+            "category": "clarification",
+            "category_label": "Needs more detail",
+            "refined_query": question,
+        }
+
     # Step 1: classify
     category = classify_query(question, cfg.openai_model)
 
