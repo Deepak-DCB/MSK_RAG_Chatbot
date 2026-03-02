@@ -108,6 +108,18 @@ async function sendQuestion() {
 
         const endToEnd = ((performance.now() - streamStart) / 1000).toFixed(2);
 
+        // Clear typing indicator if still showing
+        const typingEl = bubble.querySelector(".typing-indicator");
+        if (typingEl) {
+            if (fullText) {
+                bubble.innerHTML = renderMarkdown(fullText);
+            } else if (streamMeta && streamMeta.error) {
+                bubble.innerHTML = `<p>⚠️ ${escapeHtml(streamMeta.error)}</p>`;
+            } else {
+                bubble.innerHTML = `<p>⚠️ No response received.</p>`;
+            }
+        }
+
         // Citations
         if (streamMeta && streamMeta.citations && streamMeta.citations.length > 0) {
             appendCitations(bubble, streamMeta.citations);
