@@ -35,7 +35,7 @@ async function checkHealth() {
     }
 }
 
-// ── Send question ────────────────────────────────────────────────────────────
+// ── Send question (streaming) ────────────────────────────────────────────────
 async function sendQuestion() {
     const question = textarea.value.trim();
     if (!question || isLoading) return;
@@ -48,11 +48,14 @@ async function sendQuestion() {
     // User message
     addMessage("user", question);
 
-    // Typing indicator
-    const typingEl = showTyping();
+    // Create assistant bubble + typing indicator
+    const { msgDiv, bubble } = createAssistantBubble();
+    bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+
+    let fullText = "";
 
     try {
-        const res = await fetch(`${API_URL}/ask`, {
+        const res = await fetch(`${API_URL}/ask/stream`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -61,27 +64,57 @@ async function sendQuestion() {
             }),
         });
 
-        removeTyping(typingEl);
-
         if (!res.ok) {
             const err = await res.json().catch(() => ({ detail: res.statusText }));
-            addMessage("assistant", `⚠️ ${err.detail || "Something went wrong."}`);
+            bubble.innerHTML = `<p>⚠️ ${escapeHtml(err.detail || "Something went wrong.")}</p>`;
             return;
         }
 
-        const data = await res.json();
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-        // Build answer with citations
-        let content = data.answer || "No answer returned.";
-        addMessage("assistant", content, data.citations);
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop(); // keep incomplete line
+
+            for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                    const payload = line.slice(6);
+                    try {
+                        const obj = JSON.parse(payload);
+                        if (obj.token) {
+                            fullText += obj.token;
+                            bubble.innerHTML = renderMarkdown(fullText);
+                            chatArea.scrollTop = chatArea.scrollHeight;
+                        }
+                    } catch { /* skip malformed */ }
+                } else if (line.startsWith("event: done")) {
+                    // Next data line has metadata — handled in next iteration
+                }
+            }
+        }
+
+        // Process any remaining buffer
+        if (buffer.startsWith("data: ")) {
+            try {
+                const meta = JSON.parse(buffer.slice(6));
+                if (meta.citations && meta.citations.length > 0) {
+                    appendCitations(bubble, meta.citations);
+                }
+            } catch { /* ignore */ }
+        }
 
         // Update history
         history.push({ role: "user", content: question });
-        history.push({ role: "assistant", content: data.answer });
+        history.push({ role: "assistant", content: fullText });
 
     } catch (err) {
-        removeTyping(typingEl);
-        addMessage("assistant", `⚠️ Network error: ${err.message}`);
+        bubble.innerHTML = `<p>⚠️ Network error: ${escapeHtml(err.message)}</p>`;
     } finally {
         isLoading = false;
         sendBtn.disabled = false;
@@ -89,7 +122,27 @@ async function sendQuestion() {
     }
 }
 
-// ── Message rendering ────────────────────────────────────────────────────────
+// ── Create an empty assistant message bubble ─────────────────────────────────
+function createAssistantBubble() {
+    const msgDiv = document.createElement("div");
+    msgDiv.className = "message assistant";
+
+    const avatar = document.createElement("div");
+    avatar.className = "message-avatar";
+    avatar.textContent = "M";
+
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble";
+
+    msgDiv.appendChild(avatar);
+    msgDiv.appendChild(bubble);
+    chatArea.appendChild(msgDiv);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    return { msgDiv, bubble };
+}
+
+// ── Message rendering (for user messages and initial assistant welcome) ──────
 function addMessage(role, text, citations) {
     const msgDiv = document.createElement("div");
     msgDiv.className = `message ${role}`;
@@ -107,17 +160,8 @@ function addMessage(role, text, citations) {
         bubble.textContent = text;
     }
 
-    // Citations
     if (citations && citations.length > 0) {
-        const citDiv = document.createElement("div");
-        citDiv.className = "citations";
-        citations.forEach(c => {
-            const tag = document.createElement("span");
-            tag.className = "citation-tag";
-            tag.textContent = c;
-            citDiv.appendChild(tag);
-        });
-        bubble.appendChild(citDiv);
+        appendCitations(bubble, citations);
     }
 
     msgDiv.appendChild(avatar);
@@ -126,29 +170,21 @@ function addMessage(role, text, citations) {
     chatArea.scrollTop = chatArea.scrollHeight;
 }
 
-// ── Typing indicator ─────────────────────────────────────────────────────────
-function showTyping() {
-    const msgDiv = document.createElement("div");
-    msgDiv.className = "message assistant";
-    msgDiv.id = "typing-msg";
+// ── Append citations to a bubble ─────────────────────────────────────────────
+function appendCitations(bubble, citations) {
+    // Remove existing citations if any
+    const existing = bubble.querySelector(".citations");
+    if (existing) existing.remove();
 
-    const avatar = document.createElement("div");
-    avatar.className = "message-avatar";
-    avatar.textContent = "M";
-
-    const bubble = document.createElement("div");
-    bubble.className = "message-bubble";
-    bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
-
-    msgDiv.appendChild(avatar);
-    msgDiv.appendChild(bubble);
-    chatArea.appendChild(msgDiv);
-    chatArea.scrollTop = chatArea.scrollHeight;
-    return msgDiv;
-}
-
-function removeTyping(el) {
-    if (el && el.parentNode) el.parentNode.removeChild(el);
+    const citDiv = document.createElement("div");
+    citDiv.className = "citations";
+    citations.forEach(c => {
+        const tag = document.createElement("span");
+        tag.className = "citation-tag";
+        tag.textContent = c;
+        citDiv.appendChild(tag);
+    });
+    bubble.appendChild(citDiv);
 }
 
 // ── Simple Markdown renderer ─────────────────────────────────────────────────
@@ -157,7 +193,7 @@ function renderMarkdown(text) {
 
     let html = escapeHtml(text);
 
-    // Headers (### → h3, ## → h2, # → h1)
+    // Headers
     html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
     html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
     html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
@@ -176,10 +212,8 @@ function renderMarkdown(text) {
     // Bullet lists
     html = html.replace(/^[-•] (.+)$/gm, "<li>$1</li>");
 
-    // Paragraphs (double newline)
+    // Paragraphs
     html = html.replace(/\n\n/g, "</p><p>");
-
-    // Single newlines → <br>
     html = html.replace(/\n/g, "<br>");
 
     return `<p>${html}</p>`;
@@ -200,7 +234,6 @@ textarea.addEventListener("keydown", (e) => {
     }
 });
 
-// Auto-resize textarea
 textarea.addEventListener("input", () => {
     textarea.style.height = "auto";
     textarea.style.height = Math.min(textarea.scrollHeight, 120) + "px";

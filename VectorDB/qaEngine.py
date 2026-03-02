@@ -49,7 +49,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PERSIST_DIR = str(PROJECT_ROOT / "chroma_store")
 COLLECTION_NAME = "msk_chunks"
 
-OPENAI_MODEL = "gpt-4.1-mini"
+OPENAI_MODEL = "gpt-5-mini"
 
 DEFAULT_TOP_K = 4
 PER_SOURCE_MAX_CHUNKS = 3
