@@ -347,7 +347,10 @@ def _get_openai_client() -> OpenAI:
 def openai_embed(texts: list[str]) -> list[list[float]]:
     """Embed one or more texts via the OpenAI embeddings API."""
     client = _get_openai_client()
-    resp = client.embeddings.create(model=EMBED_MODEL, input=texts)
+    # Ensure all inputs are valid non-empty strings
+    clean = [str(t).strip() if t else "empty" for t in texts]
+    clean = [t if t else "empty" for t in clean]
+    resp = client.embeddings.create(model=EMBED_MODEL, input=clean)
     return [d.embedding for d in resp.data]
 
 
@@ -909,8 +912,12 @@ def ask_openai_llm(prompt: str, model: str, num_predict: int, on_token=None):
         output_tokens = count_tokens(answer)
         return answer, int(prompt_tokens), int(output_tokens)
 
-    except Exception:
-        pass  # fall back to non-streaming
+    except Exception as stream_err:
+        # Only fall back for streaming-specific issues, not API errors
+        err_str = str(stream_err)
+        if "invalid" in err_str.lower() or "400" in err_str:
+            raise RuntimeError(f"OpenAI API error: {stream_err}")
+        # Fall back to non-streaming for other issues
 
 
     # ---------- 2) Non-streaming fallback ----------
