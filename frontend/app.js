@@ -45,14 +45,14 @@ async function sendQuestion() {
     textarea.value = "";
     textarea.style.height = "auto";
 
-    // User message
     addMessage("user", question);
 
-    // Create assistant bubble + typing indicator
     const { msgDiv, bubble } = createAssistantBubble();
     bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
     let fullText = "";
+    let streamMeta = null;
+    const streamStart = performance.now();
 
     try {
         const res = await fetch(`${API_URL}/ask/stream`, {
@@ -73,6 +73,7 @@ async function sendQuestion() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let gotDone = false;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -80,36 +81,43 @@ async function sendQuestion() {
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split("\n");
-            buffer = lines.pop(); // keep incomplete line
+            buffer = lines.pop();
 
             for (const line of lines) {
-                if (line.startsWith("data: ")) {
-                    const payload = line.slice(6);
+                if (line.startsWith("event: done")) {
+                    gotDone = true;
+                } else if (line.startsWith("data: ")) {
                     try {
-                        const obj = JSON.parse(payload);
-                        if (obj.token) {
+                        const obj = JSON.parse(line.slice(6));
+                        if (gotDone) {
+                            streamMeta = obj;
+                        } else if (obj.token) {
                             fullText += obj.token;
                             bubble.innerHTML = renderMarkdown(fullText);
                             chatArea.scrollTop = chatArea.scrollHeight;
                         }
-                    } catch { /* skip malformed */ }
-                } else if (line.startsWith("event: done")) {
-                    // Next data line has metadata — handled in next iteration
+                    } catch { /* skip */ }
                 }
             }
         }
 
-        // Process any remaining buffer
-        if (buffer.startsWith("data: ")) {
-            try {
-                const meta = JSON.parse(buffer.slice(6));
-                if (meta.citations && meta.citations.length > 0) {
-                    appendCitations(bubble, meta.citations);
-                }
-            } catch { /* ignore */ }
+        // Remaining buffer
+        if (buffer.startsWith("data: ") && !streamMeta) {
+            try { streamMeta = JSON.parse(buffer.slice(6)); } catch { }
         }
 
-        // Update history
+        const endToEnd = ((performance.now() - streamStart) / 1000).toFixed(2);
+
+        // Citations
+        if (streamMeta && streamMeta.citations && streamMeta.citations.length > 0) {
+            appendCitations(bubble, streamMeta.citations);
+        }
+
+        // Telemetry
+        if (streamMeta) {
+            appendTelemetry(bubble, streamMeta, endToEnd);
+        }
+
         history.push({ role: "user", content: question });
         history.push({ role: "assistant", content: fullText });
 
@@ -122,7 +130,7 @@ async function sendQuestion() {
     }
 }
 
-// ── Create an empty assistant message bubble ─────────────────────────────────
+// ── Create empty assistant bubble ────────────────────────────────────────────
 function createAssistantBubble() {
     const msgDiv = document.createElement("div");
     msgDiv.className = "message assistant";
@@ -142,8 +150,8 @@ function createAssistantBubble() {
     return { msgDiv, bubble };
 }
 
-// ── Message rendering (for user messages and initial assistant welcome) ──────
-function addMessage(role, text, citations) {
+// ── Add static message ───────────────────────────────────────────────────────
+function addMessage(role, text) {
     const msgDiv = document.createElement("div");
     msgDiv.className = `message ${role}`;
 
@@ -160,19 +168,14 @@ function addMessage(role, text, citations) {
         bubble.textContent = text;
     }
 
-    if (citations && citations.length > 0) {
-        appendCitations(bubble, citations);
-    }
-
     msgDiv.appendChild(avatar);
     msgDiv.appendChild(bubble);
     chatArea.appendChild(msgDiv);
     chatArea.scrollTop = chatArea.scrollHeight;
 }
 
-// ── Append citations to a bubble ─────────────────────────────────────────────
+// ── Append citations ─────────────────────────────────────────────────────────
 function appendCitations(bubble, citations) {
-    // Remove existing citations if any
     const existing = bubble.querySelector(".citations");
     if (existing) existing.remove();
 
@@ -187,32 +190,81 @@ function appendCitations(bubble, citations) {
     bubble.appendChild(citDiv);
 }
 
-// ── Simple Markdown renderer ─────────────────────────────────────────────────
+// ── Append telemetry panel ───────────────────────────────────────────────────
+function appendTelemetry(bubble, meta, endToEnd) {
+    const rt = (meta.retrieval_time || 0).toFixed(2);
+    const gt = (meta.generation_time || 0).toFixed(2);
+    const conf = (meta.retrieval_confidence || 0);
+    const confClass = conf >= 0.5 ? "confidence-high" : conf >= 0.3 ? "confidence-mid" : "confidence-low";
+    const pTok = meta.prompt_tokens || 0;
+    const oTok = meta.output_tokens || 0;
+    const cTok = meta.context_tokens || 0;
+    const qTok = meta.question_tokens || 0;
+
+    // Toggle button
+    const toggleBtn = document.createElement("div");
+    toggleBtn.className = "telemetry-toggle";
+    toggleBtn.innerHTML = "📊 Stats";
+    bubble.appendChild(toggleBtn);
+
+    // Panel
+    const panel = document.createElement("div");
+    panel.className = "telemetry-panel";
+
+    let statsHtml = `<div class="telemetry-stats">
+    <span class="stat-badge">Retrieval: ${rt}s</span>
+    <span class="stat-badge">LLM: ${gt}s</span>
+    <span class="stat-badge">End-to-end: ${endToEnd}s</span>
+    <span class="stat-badge">Prompt: ${pTok}</span>
+    <span class="stat-badge">Output: ${oTok}</span>
+    <span class="stat-badge">Context: ${cTok}</span>
+    <span class="stat-badge">Question: ${qTok}</span>
+    <span class="stat-badge ${confClass}">Confidence: ${conf.toFixed(2)}</span>
+  </div>`;
+
+    // Category + refined query
+    let detailHtml = "";
+    if (meta.category || meta.refined_query) {
+        detailHtml = '<div class="telemetry-detail">';
+        if (meta.category) {
+            const label = meta.category_label || meta.category;
+            detailHtml += `<strong>Category:</strong> ${escapeHtml(meta.category)} — ${escapeHtml(label)}<br>`;
+        }
+        if (meta.refined_query) {
+            detailHtml += `<strong>Refined query:</strong> ${escapeHtml(meta.refined_query)}`;
+        }
+        detailHtml += "</div>";
+    }
+
+    panel.innerHTML = statsHtml + detailHtml;
+    bubble.appendChild(panel);
+
+    toggleBtn.addEventListener("click", () => {
+        panel.classList.toggle("open");
+        chatArea.scrollTop = chatArea.scrollHeight;
+    });
+}
+
+// ── Markdown renderer ────────────────────────────────────────────────────────
 function renderMarkdown(text) {
     if (!text) return "";
 
     let html = escapeHtml(text);
 
-    // Headers
     html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
     html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
     html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
 
-    // Bold & italic
     html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
     html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
 
-    // Inline code
     html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
 
-    // Numbered lists
     html = html.replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>");
     html = html.replace(/(<li>.*<\/li>\n?)+/gs, (match) => `<ol>${match}</ol>`);
 
-    // Bullet lists
     html = html.replace(/^[-•] (.+)$/gm, "<li>$1</li>");
 
-    // Paragraphs
     html = html.replace(/\n\n/g, "</p><p>");
     html = html.replace(/\n/g, "<br>");
 

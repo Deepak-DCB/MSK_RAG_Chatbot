@@ -215,7 +215,10 @@ def ask_stream(req: AskRequest, request: Request):
             "generation_time": result_holder.get("generation_time", 0.0),
             "prompt_tokens": result_holder.get("prompt_tokens", 0),
             "output_tokens": result_holder.get("output_tokens", 0),
+            "context_tokens": result_holder.get("context_tokens", 0),
+            "question_tokens": result_holder.get("question_tokens", 0),
             "category": result_holder.get("category"),
+            "category_label": result_holder.get("category_label"),
             "refined_query": result_holder.get("refined_query"),
         }
         if "error" in result_holder:
