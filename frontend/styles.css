@@ -92,6 +92,27 @@ body {
     display: none;
 }
 
+.guest-banner {
+    margin-top: 1.5rem;
+    padding: 0.65rem 1.2rem;
+    background: var(--bg-assistant);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.guest-banner a {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.guest-banner a:hover {
+    text-decoration: underline;
+}
+
 .modal {
     background: white;
     border-radius: var(--radius-xl);

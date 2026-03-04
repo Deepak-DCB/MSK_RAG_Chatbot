@@ -19,13 +19,13 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
   <!-- Styles -->
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=5" />
 </head>
 
 <body>
 
   <!-- Auth Modal -->
-  <div class="modal-overlay" id="auth-modal">
+  <div class="modal-overlay hidden" id="auth-modal">
     <div class="modal">
       <h2 id="auth-title">Sign in</h2>
       <p class="modal-sub">Save your conversations and track your history</p>
@@ -157,6 +157,10 @@
             </button>
           </div>
         </div>
+
+        <div class="guest-banner" id="guest-banner">
+          <span>💡 <a href="#" id="banner-signin">Sign in</a> to save your conversations and access chat history</span>
+        </div>
       </div>
 
     </main>
@@ -192,7 +196,7 @@
       document.body.appendChild(d);
     };
   </script>
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 
 </html>

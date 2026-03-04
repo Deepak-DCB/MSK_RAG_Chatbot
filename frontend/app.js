@@ -57,6 +57,8 @@ const historyBtn = document.getElementById("history-btn");
 const historyPanel = document.getElementById("history-panel");
 const historyList = document.getElementById("history-list");
 const historyClose = document.getElementById("history-close");
+const guestBanner = document.getElementById("guest-banner");
+const bannerSignin = document.getElementById("banner-signin");
 
 let isSignUp = false;
 
@@ -189,6 +191,14 @@ function bindAuth() {
     historyClose.addEventListener("click", () => {
         historyPanel.classList.remove("open");
     });
+
+    // Banner sign-in link
+    if (bannerSignin) {
+        bannerSignin.addEventListener("click", (e) => {
+            e.preventDefault();
+            showAuthModal();
+        });
+    }
 }
 
 function setUser(user, token) {
@@ -199,6 +209,7 @@ function setUser(user, token) {
     userMenu.style.display = "flex";
     historyBtn.style.display = "block";
     signinBtn.style.display = "none";
+    if (guestBanner) guestBanner.style.display = "none";
 }
 
 function clearUser() {
@@ -207,6 +218,7 @@ function clearUser() {
     userMenu.style.display = "none";
     historyBtn.style.display = "none";
     signinBtn.style.display = "block";
+    if (guestBanner) guestBanner.style.display = "";
 }
 
 function showAuthModal() {
