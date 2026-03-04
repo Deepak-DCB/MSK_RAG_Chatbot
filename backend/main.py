@@ -14,7 +14,7 @@ import collections
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -41,7 +41,6 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5500",
 ]
 
-# Add any extra origins from env var
 extra = os.getenv("CORS_ORIGINS", "")
 if extra:
     ALLOWED_ORIGINS.extend([o.strip() for o in extra.split(",") if o.strip()])
@@ -78,6 +77,68 @@ def _check_rate_limit(ip: str) -> None:
             detail=f"Rate limit exceeded. Max {RATE_LIMIT_MAX} requests per {RATE_LIMIT_WINDOW}s.",
         )
     dq.append(now)
+
+
+# ── Supabase setup ────────────────────────────────────────────────────────────
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
+
+_supabase_client = None
+
+
+def _get_supabase():
+    global _supabase_client
+    if _supabase_client is not None:
+        return _supabase_client
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    try:
+        from supabase import create_client
+        _supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        return _supabase_client
+    except Exception:
+        return None
+
+
+def _extract_user_id(authorization: Optional[str]) -> Optional[str]:
+    """Extract user_id from Supabase JWT. Returns None if not authenticated."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[7:]
+    try:
+        import jwt
+        # Decode using the JWT secret from Supabase
+        # The JWT secret is in Settings → API → JWT Secret
+        secret = SUPABASE_JWT_SECRET
+        if not secret:
+            # Fallback: extract from anon key (not ideal but works for verification)
+            # For proper setup, set SUPABASE_JWT_SECRET env var
+            return None
+        payload = jwt.decode(token, secret, algorithms=["HS256"], audience="authenticated")
+        return payload.get("sub")
+    except Exception:
+        return None
+
+
+def _save_conversation(user_id: str, question: str, answer: str,
+                       citations: List[str], category: Optional[str],
+                       confidence: float):
+    """Save a conversation to Supabase (fire-and-forget)."""
+    sb = _get_supabase()
+    if not sb or not user_id:
+        return
+    try:
+        sb.table("conversations").insert({
+            "user_id": user_id,
+            "question": question,
+            "answer": answer,
+            "citations": citations,
+            "category": category or "",
+            "confidence": confidence,
+        }).execute()
+    except Exception:
+        pass  # Don't break the response if DB write fails
 
 
 # ── Startup: preload Chroma ──────────────────────────────────────────────────
@@ -168,13 +229,17 @@ _SENTINEL = object()
 
 
 @app.post("/ask/stream")
-def ask_stream(req: AskRequest, request: Request):
+def ask_stream(req: AskRequest, request: Request,
+               authorization: Optional[str] = Header(None)):
     client_ip = request.client.host if request.client else "unknown"
     _check_rate_limit(client_ip)
 
     question = req.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    # Extract user_id from JWT (optional — guests can still use)
+    user_id = _extract_user_id(authorization)
 
     history = req.history[-MAX_HISTORY_TURNS:] if req.history else None
     cfg = _build_config(req.config)
@@ -225,4 +290,45 @@ def ask_stream(req: AskRequest, request: Request):
             meta["error"] = result_holder["error"]
         yield f"event: done\ndata: {json.dumps(meta)}\n\n"
 
+        # Save to Supabase (after stream completes)
+        if user_id and "answer" in result_holder:
+            threading.Thread(
+                target=_save_conversation,
+                args=(
+                    user_id,
+                    question,
+                    result_holder.get("answer", ""),
+                    result_holder.get("citations", []),
+                    result_holder.get("category"),
+                    result_holder.get("retrieval_confidence", 0.0),
+                ),
+                daemon=True,
+            ).start()
+
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ── History endpoint ──────────────────────────────────────────────────────────
+@app.get("/history")
+def get_history(authorization: Optional[str] = Header(None),
+                limit: int = 50, offset: int = 0):
+    user_id = _extract_user_id(authorization)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    sb = _get_supabase()
+    if not sb:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        resp = (
+            sb.table("conversations")
+            .select("id, question, answer, citations, category, confidence, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        return {"conversations": resp.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")

@@ -2,9 +2,17 @@
 
 const API_URL = "https://msk-rag-chatbot.onrender.com";
 
+// ── Supabase ─────────────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://lmanobmmvrgpotioblih.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtYW5vYm1tdnJncG90aW9ibGloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MDE5OTgsImV4cCI6MjA4ODE3Nzk5OH0.gY-_zvAFsQd7Sfhq288Qvdn4uNa3tMQdr6BV4-IP5UI";
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 // ── State ────────────────────────────────────────────────────────────────────
 let history = [];
 let isLoading = false;
+let currentUser = null;
+let accessToken = null;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const chatArea = document.getElementById("chat-area");
@@ -13,12 +21,226 @@ const sendBtn = document.getElementById("send-btn");
 const statusText = document.getElementById("status-text");
 const welcomeScreen = document.getElementById("welcome-screen");
 
+// Auth elements
+const authModal = document.getElementById("auth-modal");
+const authForm = document.getElementById("auth-form");
+const authEmail = document.getElementById("auth-email");
+const authPassword = document.getElementById("auth-password");
+const authSubmit = document.getElementById("auth-submit");
+const authTitle = document.getElementById("auth-title");
+const authError = document.getElementById("auth-error");
+const authSwitchText = document.getElementById("auth-switch-text");
+const authSwitchLink = document.getElementById("auth-switch-link");
+const googleBtn = document.getElementById("google-btn");
+const skipBtn = document.getElementById("skip-btn");
+const signinBtn = document.getElementById("signin-btn");
+const userMenu = document.getElementById("user-menu");
+const userAvatar = document.getElementById("user-avatar");
+const logoutBtn = document.getElementById("logout-btn");
+const historyBtn = document.getElementById("history-btn");
+const historyPanel = document.getElementById("history-panel");
+const historyList = document.getElementById("history-list");
+const historyClose = document.getElementById("history-close");
+
+let isSignUp = false;
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
-    textarea.focus();
+document.addEventListener("DOMContentLoaded", async () => {
     checkHealth();
     bindChips();
+    bindAuth();
+
+    // Check existing session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+        setUser(session.user, session.access_token);
+        hideAuthModal();
+    }
+
+    // Listen for auth changes (Google redirect, etc.)
+    supabase.auth.onAuthStateChange((event, session) => {
+        if (session) {
+            setUser(session.user, session.access_token);
+            hideAuthModal();
+        } else {
+            clearUser();
+        }
+    });
+
+    textarea.focus();
 });
+
+// ── Auth UI ──────────────────────────────────────────────────────────────────
+function bindAuth() {
+    // Toggle sign-in / sign-up
+    authSwitchLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        isSignUp = !isSignUp;
+        authTitle.textContent = isSignUp ? "Create account" : "Sign in";
+        authSubmit.textContent = isSignUp ? "Sign up" : "Sign in";
+        authSwitchText.textContent = isSignUp ? "Already have an account?" : "Don't have an account?";
+        authSwitchLink.textContent = isSignUp ? "Sign in" : "Sign up";
+        authError.textContent = "";
+    });
+
+    // Email/password submit
+    authForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        authError.textContent = "";
+        authSubmit.disabled = true;
+        authSubmit.textContent = "Loading…";
+
+        const email = authEmail.value.trim();
+        const password = authPassword.value;
+
+        try {
+            let result;
+            if (isSignUp) {
+                result = await supabase.auth.signUp({ email, password });
+            } else {
+                result = await supabase.auth.signInWithPassword({ email, password });
+            }
+
+            if (result.error) {
+                authError.textContent = result.error.message;
+            } else if (isSignUp && result.data?.user && !result.data.session) {
+                authError.textContent = "";
+                authTitle.textContent = "Check your email";
+                authForm.style.display = "none";
+                googleBtn.style.display = "none";
+                document.querySelector(".divider").style.display = "none";
+                document.querySelector(".auth-switch").textContent =
+                    "We sent a confirmation link to " + email;
+            }
+        } catch (err) {
+            authError.textContent = err.message;
+        } finally {
+            authSubmit.disabled = false;
+            authSubmit.textContent = isSignUp ? "Sign up" : "Sign in";
+        }
+    });
+
+    // Google OAuth
+    googleBtn.addEventListener("click", async () => {
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: "google",
+            options: {
+                redirectTo: window.location.origin,
+            },
+        });
+        if (error) authError.textContent = error.message;
+    });
+
+    // Skip (guest mode)
+    skipBtn.addEventListener("click", () => {
+        hideAuthModal();
+        textarea.focus();
+    });
+
+    // Sign in button (header)
+    signinBtn.addEventListener("click", () => showAuthModal());
+
+    // Logout
+    logoutBtn.addEventListener("click", async () => {
+        await supabase.auth.signOut();
+        clearUser();
+        historyPanel.classList.remove("open");
+    });
+
+    // History
+    historyBtn.addEventListener("click", () => {
+        historyPanel.classList.toggle("open");
+        if (historyPanel.classList.contains("open")) loadHistory();
+    });
+    historyClose.addEventListener("click", () => {
+        historyPanel.classList.remove("open");
+    });
+}
+
+function setUser(user, token) {
+    currentUser = user;
+    accessToken = token;
+    const initial = (user.email || "U")[0].toUpperCase();
+    userAvatar.textContent = initial;
+    userMenu.style.display = "flex";
+    historyBtn.style.display = "block";
+    signinBtn.style.display = "none";
+}
+
+function clearUser() {
+    currentUser = null;
+    accessToken = null;
+    userMenu.style.display = "none";
+    historyBtn.style.display = "none";
+    signinBtn.style.display = "block";
+}
+
+function showAuthModal() {
+    authModal.classList.remove("hidden");
+    authError.textContent = "";
+    authForm.style.display = "flex";
+    googleBtn.style.display = "flex";
+    const divider = document.querySelector(".divider");
+    if (divider) divider.style.display = "flex";
+}
+
+function hideAuthModal() {
+    authModal.classList.add("hidden");
+}
+
+// ── History ──────────────────────────────────────────────────────────────────
+async function loadHistory() {
+    if (!accessToken) return;
+
+    historyList.innerHTML = '<p class="history-empty">Loading…</p>';
+
+    try {
+        const res = await fetch(`${API_URL}/history?limit=30`, {
+            headers: { "Authorization": `Bearer ${accessToken}` },
+        });
+
+        if (!res.ok) {
+            historyList.innerHTML = '<p class="history-empty">Could not load history</p>';
+            return;
+        }
+
+        const data = await res.json();
+        const convos = data.conversations || [];
+
+        if (convos.length === 0) {
+            historyList.innerHTML = '<p class="history-empty">No conversations yet</p>';
+            return;
+        }
+
+        historyList.innerHTML = "";
+        convos.forEach(c => {
+            const item = document.createElement("div");
+            item.className = "history-item";
+            const date = new Date(c.created_at).toLocaleDateString(undefined, {
+                month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+            });
+            item.innerHTML = `
+                <div class="history-item-q">${escapeHtml(c.question)}</div>
+                <div class="history-item-date">${date}</div>
+            `;
+            item.addEventListener("click", () => {
+                // Load this conversation into chat
+                welcomeScreen?.classList.add("hidden");
+                addMessage("user", c.question);
+                addMessage("assistant", c.answer);
+                if (c.citations && c.citations.length > 0) {
+                    const bubbles = chatArea.querySelectorAll(".message.assistant .message-bubble");
+                    const lastBubble = bubbles[bubbles.length - 1];
+                    if (lastBubble) appendCitations(lastBubble, c.citations);
+                }
+                historyPanel.classList.remove("open");
+            });
+            historyList.appendChild(item);
+        });
+    } catch {
+        historyList.innerHTML = '<p class="history-empty">Network error</p>';
+    }
+}
 
 // ── Health check ─────────────────────────────────────────────────────────────
 async function checkHealth() {
@@ -58,7 +280,6 @@ async function sendQuestion() {
     textarea.value = "";
     textarea.style.height = "auto";
 
-    // Hide welcome screen on first message
     if (welcomeScreen) welcomeScreen.classList.add("hidden");
 
     addMessage("user", question);
@@ -70,10 +291,16 @@ async function sendQuestion() {
     let streamMeta = null;
     const streamStart = performance.now();
 
+    // Build headers — include JWT if logged in
+    const headers = { "Content-Type": "application/json" };
+    if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+
     try {
         const res = await fetch(`${API_URL}/ask/stream`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers,
             body: JSON.stringify({
                 question,
                 history: history.slice(-10),
@@ -123,7 +350,6 @@ async function sendQuestion() {
 
         const endToEnd = ((performance.now() - streamStart) / 1000).toFixed(2);
 
-        // Clear typing indicator if no tokens arrived
         const typingEl = bubble.querySelector(".typing-indicator");
         if (typingEl) {
             if (fullText) {
@@ -221,10 +447,6 @@ function appendTelemetry(bubble, meta, endToEnd) {
     const gt = (meta.generation_time || 0).toFixed(2);
     const conf = (meta.retrieval_confidence || 0);
     const confClass = conf >= 0.5 ? "confidence-high" : conf >= 0.3 ? "confidence-mid" : "confidence-low";
-    const pTok = meta.prompt_tokens || 0;
-    const oTok = meta.output_tokens || 0;
-    const cTok = meta.context_tokens || 0;
-    const qTok = meta.question_tokens || 0;
 
     const toggleBtn = document.createElement("div");
     toggleBtn.className = "telemetry-toggle";
@@ -238,21 +460,15 @@ function appendTelemetry(bubble, meta, endToEnd) {
         <span class="stat-badge">Retrieval ${rt}s</span>
         <span class="stat-badge">LLM ${gt}s</span>
         <span class="stat-badge">Total ${endToEnd}s</span>
-        <span class="stat-badge">Prompt ${pTok}</span>
-        <span class="stat-badge">Output ${oTok}</span>
-        <span class="stat-badge">Context ${cTok}</span>
+        <span class="stat-badge">Prompt ${meta.prompt_tokens || 0}</span>
+        <span class="stat-badge">Output ${meta.output_tokens || 0}</span>
         <span class="stat-badge ${confClass}">Confidence ${conf.toFixed(2)}</span>
     </div>`;
 
     if (meta.category || meta.refined_query) {
         html += '<div class="telemetry-detail">';
-        if (meta.category) {
-            const label = meta.category_label || meta.category;
-            html += `<strong>Category:</strong> ${escapeHtml(label)}<br>`;
-        }
-        if (meta.refined_query) {
-            html += `<strong>Query:</strong> ${escapeHtml(meta.refined_query)}`;
-        }
+        if (meta.category) html += `<strong>Category:</strong> ${escapeHtml(meta.category_label || meta.category)}<br>`;
+        if (meta.refined_query) html += `<strong>Query:</strong> ${escapeHtml(meta.refined_query)}`;
         html += "</div>";
     }
 
@@ -269,7 +485,6 @@ function appendTelemetry(bubble, meta, endToEnd) {
 function renderMarkdown(text) {
     if (!text) return "";
     let html = escapeHtml(text);
-
     html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
     html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
     html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
@@ -281,7 +496,6 @@ function renderMarkdown(text) {
     html = html.replace(/^[-•] (.+)$/gm, "<li>$1</li>");
     html = html.replace(/\n\n/g, "</p><p>");
     html = html.replace(/\n/g, "<br>");
-
     return `<p>${html}</p>`;
 }
 
