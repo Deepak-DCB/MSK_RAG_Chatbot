@@ -61,7 +61,7 @@ const historyClose = document.getElementById("history-close");
 let isSignUp = false;
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", async () => {
+async function init() {
     checkHealth();
     bindChips();
     bindAuth();
@@ -90,7 +90,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     textarea.focus();
-});
+}
+
+// Run init immediately if DOM is ready, otherwise wait
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+} else {
+    init();
+}
 
 // ── Auth UI ──────────────────────────────────────────────────────────────────
 function bindAuth() {
