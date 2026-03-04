@@ -6,9 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- SEO -->
-  <title>MSK Triage Chatbot</title>
+  <title>MSK Triage Chatbot — Musculoskeletal Neurology Assistant</title>
   <meta name="description"
-    content="Evidence-grounded RAG chatbot for musculoskeletal neurology. Ask about symptoms, biomechanics, and clinical patterns." />
+    content="Evidence-grounded RAG chatbot for musculoskeletal neurology. Describe your symptoms for biomechanical analysis grounded in the MSK Neurology dataset." />
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -21,56 +21,95 @@
 
 <body>
 
-  <!-- Ambient background orbs -->
-  <div class="ambient-bg">
-    <div class="orb orb-1"></div>
-    <div class="orb orb-2"></div>
-    <div class="orb orb-3"></div>
-  </div>
-
   <div class="app">
 
     <!-- Header -->
-    <header class="header" id="header">
-      <div class="header-content">
-        <div class="header-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-            stroke-linejoin="round">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-          </svg>
+    <header class="header">
+      <div class="header-left">
+        <div class="brand-mark">MSK</div>
+        <div class="header-text">
+          <h1>Triage Assistant</h1>
+          <p class="header-sub">Grounded in the MSK Neurology evidence base</p>
         </div>
-        <div>
-          <h1>MSK Triage Chatbot</h1>
-          <p>Evidence-grounded assistant · MSK Neurology</p>
-        </div>
+      </div>
+      <div class="connection-badge" id="connection-badge">
+        <span class="conn-dot"></span>
+        <span id="status-text">Connecting…</span>
       </div>
     </header>
 
-    <!-- Chat Area -->
+    <!-- Welcome / Chat Area -->
     <main class="chat-area" id="chat-area">
-      <!-- Messages inserted here by JS -->
+
+      <!-- Welcome screen (hidden after first message) -->
+      <div class="welcome" id="welcome-screen">
+        <div class="welcome-heading">
+          <h2>What's bothering you?</h2>
+          <p>Describe your symptoms and I'll analyze them using biomechanical and neurological evidence. Be specific
+            about location, sensation, and timing for the best results.</p>
+        </div>
+
+        <div class="region-bar">
+          <span class="region-label">Quick start — tap a region:</span>
+          <div class="region-chips">
+            <button class="region-chip" data-query="I have neck pain">Neck</button>
+            <button class="region-chip" data-query="I have shoulder pain">Shoulder</button>
+            <button class="region-chip" data-query="I have upper back pain between my shoulder blades">Upper
+              Back</button>
+            <button class="region-chip" data-query="I have lower back pain">Lower Back</button>
+            <button class="region-chip" data-query="I have hip pain">Hip</button>
+            <button class="region-chip" data-query="I have knee pain">Knee</button>
+            <button class="region-chip" data-query="I have headaches that seem related to my neck">Headache</button>
+            <button class="region-chip" data-query="I have tingling and numbness in my arm">Nerve / Tingling</button>
+          </div>
+        </div>
+
+        <div class="scenario-section">
+          <span class="scenario-label">Or try a clinical scenario:</span>
+          <div class="scenario-chips">
+            <button class="scenario-chip"
+              data-query="Explain the biomechanics of scapular dyskinesis and how it affects the shoulder.">
+              <span class="scenario-icon">🦴</span>
+              Scapular dyskinesis
+            </button>
+            <button class="scenario-chip"
+              data-query="What structures are usually responsible for thoracic outlet symptoms?">
+              <span class="scenario-icon">🫁</span>
+              Thoracic outlet
+            </button>
+            <button class="scenario-chip" data-query="How can atlas rotation contribute to headache patterns?">
+              <span class="scenario-icon">🧠</span>
+              Atlas & headaches
+            </button>
+            <button class="scenario-chip"
+              data-query="What causes pain between the shoulder blades when sitting at a desk?">
+              <span class="scenario-icon">💺</span>
+              Desk posture pain
+            </button>
+          </div>
+        </div>
+      </div>
+
     </main>
 
-    <!-- Input -->
+    <!-- Input Area -->
     <div class="input-area">
       <div class="input-row">
-        <textarea id="user-input" placeholder="Describe your symptoms, area of pain, or ask about biomechanics…"
+        <textarea id="user-input" placeholder="Describe where it hurts, what it feels like, and when it happens…"
           rows="1"></textarea>
         <button class="send-btn" id="send-btn" aria-label="Send">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
         </button>
       </div>
-      <div class="input-hint">Press Enter to send · Shift+Enter for new line</div>
     </div>
 
-    <!-- Status Bar -->
-    <div class="status-bar">
-      <span><span class="status-dot"></span> <span id="status-text">Connecting…</span></span>
-      <span>Powered by RAG · OpenAI</span>
+    <!-- Footer -->
+    <div class="footer-bar">
+      <span>Evidence-grounded · Not medical advice</span>
+      <span>RAG · OpenAI</span>
     </div>
 
   </div>

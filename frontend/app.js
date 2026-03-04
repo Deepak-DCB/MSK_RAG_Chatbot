@@ -1,6 +1,5 @@
 // ── MSK Triage Chatbot — Frontend Logic ──────────────────────────────────────
 
-// ⚠️ UPDATE THIS to your Render backend URL after deploying
 const API_URL = "https://msk-rag-chatbot.onrender.com";
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -12,12 +11,13 @@ const chatArea = document.getElementById("chat-area");
 const textarea = document.getElementById("user-input");
 const sendBtn = document.getElementById("send-btn");
 const statusText = document.getElementById("status-text");
+const welcomeScreen = document.getElementById("welcome-screen");
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-    addMessage("assistant", "Ask about symptoms, biomechanics, or exercise progressions.\n\nAll answers are grounded strictly in the MSK Neurology dataset.");
     textarea.focus();
     checkHealth();
+    bindChips();
 });
 
 // ── Health check ─────────────────────────────────────────────────────────────
@@ -26,13 +26,26 @@ async function checkHealth() {
         const r = await fetch(`${API_URL}/health`);
         if (r.ok) {
             const data = await r.json();
-            statusText.textContent = `Connected · ${data.chunk_count} chunks`;
+            statusText.textContent = `${data.chunk_count} sources`;
         } else {
-            statusText.textContent = "Backend unreachable";
+            statusText.textContent = "Offline";
         }
     } catch {
-        statusText.textContent = "Backend offline";
+        statusText.textContent = "Offline";
     }
+}
+
+// ── Chip click handlers ──────────────────────────────────────────────────────
+function bindChips() {
+    document.querySelectorAll("[data-query]").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const q = btn.getAttribute("data-query");
+            if (q && !isLoading) {
+                textarea.value = q;
+                sendQuestion();
+            }
+        });
+    });
 }
 
 // ── Send question (streaming) ────────────────────────────────────────────────
@@ -45,9 +58,12 @@ async function sendQuestion() {
     textarea.value = "";
     textarea.style.height = "auto";
 
+    // Hide welcome screen on first message
+    if (welcomeScreen) welcomeScreen.classList.add("hidden");
+
     addMessage("user", question);
 
-    const { msgDiv, bubble } = createAssistantBubble();
+    const { bubble } = createAssistantBubble();
     bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
     let fullText = "";
@@ -101,14 +117,13 @@ async function sendQuestion() {
             }
         }
 
-        // Remaining buffer
         if (buffer.startsWith("data: ") && !streamMeta) {
             try { streamMeta = JSON.parse(buffer.slice(6)); } catch { }
         }
 
         const endToEnd = ((performance.now() - streamStart) / 1000).toFixed(2);
 
-        // Clear typing indicator if still showing
+        // Clear typing indicator if no tokens arrived
         const typingEl = bubble.querySelector(".typing-indicator");
         if (typingEl) {
             if (fullText) {
@@ -120,12 +135,10 @@ async function sendQuestion() {
             }
         }
 
-        // Citations
         if (streamMeta && streamMeta.citations && streamMeta.citations.length > 0) {
             appendCitations(bubble, streamMeta.citations);
         }
 
-        // Telemetry
         if (streamMeta) {
             appendTelemetry(bubble, streamMeta, endToEnd);
         }
@@ -142,7 +155,7 @@ async function sendQuestion() {
     }
 }
 
-// ── Create empty assistant bubble ────────────────────────────────────────────
+// ── Create assistant bubble ──────────────────────────────────────────────────
 function createAssistantBubble() {
     const msgDiv = document.createElement("div");
     msgDiv.className = "message assistant";
@@ -186,7 +199,7 @@ function addMessage(role, text) {
     chatArea.scrollTop = chatArea.scrollHeight;
 }
 
-// ── Append citations ─────────────────────────────────────────────────────────
+// ── Citations ────────────────────────────────────────────────────────────────
 function appendCitations(bubble, citations) {
     const existing = bubble.querySelector(".citations");
     if (existing) existing.remove();
@@ -202,7 +215,7 @@ function appendCitations(bubble, citations) {
     bubble.appendChild(citDiv);
 }
 
-// ── Append telemetry panel ───────────────────────────────────────────────────
+// ── Telemetry ────────────────────────────────────────────────────────────────
 function appendTelemetry(bubble, meta, endToEnd) {
     const rt = (meta.retrieval_time || 0).toFixed(2);
     const gt = (meta.generation_time || 0).toFixed(2);
@@ -213,42 +226,37 @@ function appendTelemetry(bubble, meta, endToEnd) {
     const cTok = meta.context_tokens || 0;
     const qTok = meta.question_tokens || 0;
 
-    // Toggle button
     const toggleBtn = document.createElement("div");
     toggleBtn.className = "telemetry-toggle";
-    toggleBtn.innerHTML = "📊 Stats";
+    toggleBtn.textContent = "📊 Stats";
     bubble.appendChild(toggleBtn);
 
-    // Panel
     const panel = document.createElement("div");
     panel.className = "telemetry-panel";
 
-    let statsHtml = `<div class="telemetry-stats">
-    <span class="stat-badge">Retrieval: ${rt}s</span>
-    <span class="stat-badge">LLM: ${gt}s</span>
-    <span class="stat-badge">End-to-end: ${endToEnd}s</span>
-    <span class="stat-badge">Prompt: ${pTok}</span>
-    <span class="stat-badge">Output: ${oTok}</span>
-    <span class="stat-badge">Context: ${cTok}</span>
-    <span class="stat-badge">Question: ${qTok}</span>
-    <span class="stat-badge ${confClass}">Confidence: ${conf.toFixed(2)}</span>
-  </div>`;
+    let html = `<div class="telemetry-stats">
+        <span class="stat-badge">Retrieval ${rt}s</span>
+        <span class="stat-badge">LLM ${gt}s</span>
+        <span class="stat-badge">Total ${endToEnd}s</span>
+        <span class="stat-badge">Prompt ${pTok}</span>
+        <span class="stat-badge">Output ${oTok}</span>
+        <span class="stat-badge">Context ${cTok}</span>
+        <span class="stat-badge ${confClass}">Confidence ${conf.toFixed(2)}</span>
+    </div>`;
 
-    // Category + refined query
-    let detailHtml = "";
     if (meta.category || meta.refined_query) {
-        detailHtml = '<div class="telemetry-detail">';
+        html += '<div class="telemetry-detail">';
         if (meta.category) {
             const label = meta.category_label || meta.category;
-            detailHtml += `<strong>Category:</strong> ${escapeHtml(meta.category)} — ${escapeHtml(label)}<br>`;
+            html += `<strong>Category:</strong> ${escapeHtml(label)}<br>`;
         }
         if (meta.refined_query) {
-            detailHtml += `<strong>Refined query:</strong> ${escapeHtml(meta.refined_query)}`;
+            html += `<strong>Query:</strong> ${escapeHtml(meta.refined_query)}`;
         }
-        detailHtml += "</div>";
+        html += "</div>";
     }
 
-    panel.innerHTML = statsHtml + detailHtml;
+    panel.innerHTML = html;
     bubble.appendChild(panel);
 
     toggleBtn.addEventListener("click", () => {
@@ -257,26 +265,20 @@ function appendTelemetry(bubble, meta, endToEnd) {
     });
 }
 
-// ── Markdown renderer ────────────────────────────────────────────────────────
+// ── Markdown ─────────────────────────────────────────────────────────────────
 function renderMarkdown(text) {
     if (!text) return "";
-
     let html = escapeHtml(text);
 
     html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
     html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
     html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
-
     html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
     html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-
     html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-
     html = html.replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>");
-    html = html.replace(/(<li>.*<\/li>\n?)+/gs, (match) => `<ol>${match}</ol>`);
-
+    html = html.replace(/(<li>.*<\/li>\n?)+/gs, match => `<ol>${match}</ol>`);
     html = html.replace(/^[-•] (.+)$/gm, "<li>$1</li>");
-
     html = html.replace(/\n\n/g, "</p><p>");
     html = html.replace(/\n/g, "<br>");
 
