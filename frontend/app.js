@@ -22,7 +22,7 @@ try {
 } catch (e) {
     console.warn("Supabase init failed:", e);
 }
-const supabase = sb;
+const sbClient = sb;
 
 // ── State ────────────────────────────────────────────────────────────────────
 let history = [];
@@ -66,17 +66,17 @@ async function init() {
     bindChips();
     bindAuth();
 
-    if (supabase) {
+    if (sbClient) {
         try {
             // Check existing session
-            const { data: { session } } = await supabase.auth.getSession();
+            const { data: { session } } = await sbClient.auth.getSession();
             if (session) {
                 setUser(session.user, session.access_token);
                 hideAuthModal();
             }
 
             // Listen for auth changes (Google redirect, etc.)
-            supabase.auth.onAuthStateChange((event, session) => {
+            sbClient.auth.onAuthStateChange((event, session) => {
                 if (session) {
                     setUser(session.user, session.access_token);
                     hideAuthModal();
@@ -123,15 +123,15 @@ function bindAuth() {
         const password = authPassword.value;
 
         try {
-            if (!supabase) {
+            if (!sbClient) {
                 authError.textContent = "Auth service unavailable. Try again later.";
                 return;
             }
             let result;
             if (isSignUp) {
-                result = await supabase.auth.signUp({ email, password });
+                result = await sbClient.auth.signUp({ email, password });
             } else {
-                result = await supabase.auth.signInWithPassword({ email, password });
+                result = await sbClient.auth.signInWithPassword({ email, password });
             }
 
             if (result.error) {
@@ -155,8 +155,8 @@ function bindAuth() {
 
     // Google OAuth
     googleBtn.addEventListener("click", async () => {
-        if (!supabase) { authError.textContent = "Auth service unavailable."; return; }
-        const { error } = await supabase.auth.signInWithOAuth({
+        if (!sbClient) { authError.textContent = "Auth service unavailable."; return; }
+        const { error } = await sbClient.auth.signInWithOAuth({
             provider: "google",
             options: {
                 redirectTo: window.location.origin,
@@ -176,7 +176,7 @@ function bindAuth() {
 
     // Logout
     logoutBtn.addEventListener("click", async () => {
-        if (supabase) await supabase.auth.signOut();
+        if (sbClient) await sbClient.auth.signOut();
         clearUser();
         historyPanel.classList.remove("open");
     });
