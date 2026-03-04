@@ -807,14 +807,31 @@ def classify_query(user_q: str, model: str ) -> str:
     return letter[0] if letter else "D"
 
 
-def rewrite_query(user_q: str, category: str, openai_model: str) -> str:
+def rewrite_query(user_q: str, category: str, openai_model: str, history=None) -> str:
     """
     Rewrite the query into an MSK-biomechanics-optimized form
     based on classification category A/B/C/D.
+    Uses last 2 conversation turns to resolve pronouns and vague follow-ups.
     """
+    # Build recent conversation context for the rewriter
+    conv_context = ""
+    if history:
+        recent = history[-4:]  # last 2 turns (2 messages each: user + assistant)
+        lines = []
+        for turn in recent:
+            role = turn.get("role", "user").capitalize()
+            content = turn.get("content", "")[:200]  # truncate for rewriter
+            lines.append(f"{role}: {content}")
+        conv_context = "\n".join(lines)
+
+    history_block = ""
+    if conv_context:
+        history_block = f"""\nRecent conversation (use to resolve pronouns like 'it', 'that', 'this'):
+{conv_context}\n"""
+
     prompt = f"""
 Rewrite the user's query into a more detailed MSK biomechanics retrieval query.
-
+{history_block}
 Original:
 "{user_q}"
 
@@ -825,6 +842,7 @@ Rules:
 - If B: emphasize specific MSKNeurology biomechanical drivers (scapular orientation, plexus traction, rib mechanics, etc.)
 - If C: emphasize neurovascular or red-flag patterns.
 - If D: rewrite neutrally with maximal biomechanical detail.
+- If the query references prior conversation (e.g. "what about exercises?", "tell me more"), incorporate the relevant topic from the conversation context.
 
 Return ONLY the rewritten query, no commentary.
 """
@@ -946,8 +964,8 @@ def agentic_run(
     # Step 1: classify
     category = classify_query(question, cfg.openai_model)
 
-    # Step 2: rewrite for retrieval
-    refined_q = rewrite_query(question, category, cfg.openai_model)
+    # Step 2: rewrite for retrieval (with history for context-aware rewriting)
+    refined_q = rewrite_query(question, category, cfg.openai_model, history=history)
 
     # Step 3: run run_qa() but forward history correctly
     if history:
@@ -964,7 +982,41 @@ def agentic_run(
 
 
 
-def ask_openai_llm(prompt: str, model: str, num_predict: int, on_token=None):
+def _truncate_history(history, max_turns=5, max_chars_per_msg=400, max_total_tokens=1500):
+    """
+    Prepare conversation history for the LLM messages array.
+    - Keeps the last `max_turns` pairs (10 messages max)
+    - Truncates each message to `max_chars_per_msg` characters
+    - Stops adding once estimated token budget is reached
+    """
+    if not history:
+        return []
+
+    # Take the last N messages (max_turns * 2 for user+assistant pairs)
+    recent = history[-(max_turns * 2):]
+
+    truncated = []
+    total_tokens = 0
+
+    for msg in recent:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+
+        # Truncate long messages
+        if len(content) > max_chars_per_msg:
+            content = content[:max_chars_per_msg] + "…"
+
+        est_tokens = len(content) // 4  # rough estimate: 1 token ≈ 4 chars
+        if total_tokens + est_tokens > max_total_tokens:
+            break
+
+        total_tokens += est_tokens
+        truncated.append({"role": role, "content": content})
+
+    return truncated
+
+
+def ask_openai_llm(prompt: str, model: str, num_predict: int, on_token=None, history=None):
     """
     Clean, stable Chat Completions wrapper for GPT-4.1 models.
     - No Responses API
@@ -982,10 +1034,15 @@ def ask_openai_llm(prompt: str, model: str, num_predict: int, on_token=None):
     # Token counting for telemetry
     prompt_tokens = count_tokens(prompt)
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user",  "content": prompt}
-    ]
+    # Build multi-turn messages array
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    # Inject conversation history for multi-turn context
+    conv_history = _truncate_history(history)
+    if conv_history:
+        messages.extend(conv_history)
+
+    messages.append({"role": "user", "content": prompt})
 
     parts = []
 
@@ -1197,6 +1254,7 @@ def run_qa(
             model=cfg.openai_model,
             num_predict=cfg.num_predict,
             on_token=token_callback,
+            history=history,
         )
 
         gen_time = time.time() - t1
