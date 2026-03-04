@@ -19,7 +19,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
   <!-- Styles -->
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=6" />
 </head>
 
 <body>
@@ -67,6 +67,43 @@
     </div>
   </div>
 
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <button class="new-chat-btn" id="new-chat-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        New chat
+      </button>
+    </div>
+    <div class="sidebar-chats" id="sidebar-chats">
+      <p class="sidebar-empty" id="sidebar-empty">No recent chats</p>
+    </div>
+    <div class="sidebar-bottom" id="sidebar-bottom">
+      <div class="sidebar-user" id="sidebar-user" style="display:none">
+        <span class="sidebar-avatar" id="sidebar-avatar">U</span>
+        <span class="sidebar-email" id="sidebar-email">User</span>
+        <button class="sidebar-logout" id="logout-btn" title="Sign out">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+          </svg>
+        </button>
+      </div>
+      <button class="sidebar-signin" id="sidebar-signin-btn">Sign in to save history</button>
+    </div>
+  </aside>
+
+  <!-- Sidebar toggle (mobile + collapsed) -->
+  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12h18M3 6h18M3 18h18" />
+    </svg>
+  </button>
+
   <div class="app">
 
     <!-- Header -->
@@ -83,29 +120,8 @@
           <span class="conn-dot"></span>
           <span id="status-text">Connecting…</span>
         </div>
-        <!-- Auth: shown when logged in -->
-        <button class="history-btn" id="history-btn" style="display:none" title="Chat history">
-          ⏱
-        </button>
-        <div class="user-menu" id="user-menu" style="display:none">
-          <span class="user-avatar" id="user-avatar">U</span>
-          <button class="logout-btn" id="logout-btn">Sign out</button>
-        </div>
-        <!-- Auth: shown when logged out -->
-        <button class="signin-btn" id="signin-btn">Sign in</button>
       </div>
     </header>
-
-    <!-- History sidebar -->
-    <div class="history-panel" id="history-panel">
-      <div class="history-header">
-        <h3>Your conversations</h3>
-        <button class="history-close" id="history-close">✕</button>
-      </div>
-      <div class="history-list" id="history-list">
-        <p class="history-empty">No conversations yet</p>
-      </div>
-    </div>
 
     <!-- Chat Area -->
     <main class="chat-area" id="chat-area">
@@ -148,7 +164,7 @@
             </button>
             <button class="scenario-chip" data-query="How can atlas rotation contribute to headache patterns?">
               <span class="scenario-icon">🧠</span>
-              Atlas & headaches
+              Atlas &amp; headaches
             </button>
             <button class="scenario-chip"
               data-query="What causes pain between the shoulder blades when sitting at a desk?">
@@ -156,10 +172,6 @@
               Desk posture pain
             </button>
           </div>
-        </div>
-
-        <div class="guest-banner" id="guest-banner">
-          <span>💡 <a href="#" id="banner-signin">Sign in</a> to save your conversations and access chat history</span>
         </div>
       </div>
 

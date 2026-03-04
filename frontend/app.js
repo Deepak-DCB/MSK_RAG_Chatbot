@@ -37,7 +37,7 @@ const sendBtn = document.getElementById("send-btn");
 const statusText = document.getElementById("status-text");
 const welcomeScreen = document.getElementById("welcome-screen");
 
-// Auth elements
+// Auth modal elements
 const authModal = document.getElementById("auth-modal");
 const authForm = document.getElementById("auth-form");
 const authEmail = document.getElementById("auth-email");
@@ -49,21 +49,28 @@ const authSwitchText = document.getElementById("auth-switch-text");
 const authSwitchLink = document.getElementById("auth-switch-link");
 const googleBtn = document.getElementById("google-btn");
 const skipBtn = document.getElementById("skip-btn");
-const signinBtn = document.getElementById("signin-btn");
-const userMenu = document.getElementById("user-menu");
-const userAvatar = document.getElementById("user-avatar");
+
+// Sidebar elements
+const sidebar = document.getElementById("sidebar");
+const sidebarToggle = document.getElementById("sidebar-toggle");
+const newChatBtn = document.getElementById("new-chat-btn");
+const sidebarChats = document.getElementById("sidebar-chats");
+const sidebarEmpty = document.getElementById("sidebar-empty");
+const sidebarUser = document.getElementById("sidebar-user");
+const sidebarAvatar = document.getElementById("sidebar-avatar");
+const sidebarEmail = document.getElementById("sidebar-email");
 const logoutBtn = document.getElementById("logout-btn");
-const historyBtn = document.getElementById("history-btn");
-const historyPanel = document.getElementById("history-panel");
-const historyList = document.getElementById("history-list");
-const historyClose = document.getElementById("history-close");
-const guestBanner = document.getElementById("guest-banner");
-const bannerSignin = document.getElementById("banner-signin");
+const sidebarSigninBtn = document.getElementById("sidebar-signin-btn");
 
 let isSignUp = false;
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 async function init() {
+    // Auto-collapse sidebar on mobile
+    if (window.innerWidth <= 768) {
+        sidebar.classList.add("collapsed");
+    }
+
     checkHealth();
     bindChips();
     bindAuth();
@@ -173,52 +180,52 @@ function bindAuth() {
         textarea.focus();
     });
 
-    // Sign in button (header)
-    signinBtn.addEventListener("click", () => showAuthModal());
-
-    // Logout
+    // Logout (sidebar)
     logoutBtn.addEventListener("click", async () => {
         if (sbClient) await sbClient.auth.signOut();
         clearUser();
-        historyPanel.classList.remove("open");
     });
 
-    // History
-    historyBtn.addEventListener("click", () => {
-        historyPanel.classList.toggle("open");
-        if (historyPanel.classList.contains("open")) loadHistory();
-    });
-    historyClose.addEventListener("click", () => {
-        historyPanel.classList.remove("open");
+    // Sidebar sign-in button
+    sidebarSigninBtn.addEventListener("click", () => showAuthModal());
+
+    // Sidebar toggle
+    sidebarToggle.addEventListener("click", () => {
+        sidebar.classList.remove("collapsed");
     });
 
-    // Banner sign-in link
-    if (bannerSignin) {
-        bannerSignin.addEventListener("click", (e) => {
-            e.preventDefault();
-            showAuthModal();
-        });
-    }
+    // New chat button
+    newChatBtn.addEventListener("click", () => {
+        startNewChat();
+    });
+}
+
+function startNewChat() {
+    // Clear current conversation
+    history = [];
+    chatArea.querySelectorAll(".message").forEach(el => el.remove());
+    welcomeScreen.style.display = "";
+    textarea.value = "";
+    textarea.focus();
 }
 
 function setUser(user, token) {
     currentUser = user;
     accessToken = token;
     const initial = (user.email || "U")[0].toUpperCase();
-    userAvatar.textContent = initial;
-    userMenu.style.display = "flex";
-    historyBtn.style.display = "block";
-    signinBtn.style.display = "none";
-    if (guestBanner) guestBanner.style.display = "none";
+    sidebarAvatar.textContent = initial;
+    sidebarEmail.textContent = user.email || "User";
+    sidebarUser.style.display = "flex";
+    sidebarSigninBtn.style.display = "none";
+    loadSidebarHistory();
 }
 
 function clearUser() {
     currentUser = null;
     accessToken = null;
-    userMenu.style.display = "none";
-    historyBtn.style.display = "none";
-    signinBtn.style.display = "block";
-    if (guestBanner) guestBanner.style.display = "";
+    sidebarUser.style.display = "none";
+    sidebarSigninBtn.style.display = "";
+    sidebarChats.innerHTML = '<p class="sidebar-empty">Sign in to see history</p>';
 }
 
 function showAuthModal() {
@@ -235,10 +242,10 @@ function hideAuthModal() {
 }
 
 // ── History ──────────────────────────────────────────────────────────────────
-async function loadHistory() {
+async function loadSidebarHistory() {
     if (!accessToken) return;
 
-    historyList.innerHTML = '<p class="history-empty">Loading…</p>';
+    sidebarChats.innerHTML = '<p class="sidebar-empty">Loading…</p>';
 
     try {
         const res = await fetch(`${API_URL}/history?limit=30`, {
@@ -246,7 +253,7 @@ async function loadHistory() {
         });
 
         if (!res.ok) {
-            historyList.innerHTML = '<p class="history-empty">Could not load history</p>';
+            sidebarChats.innerHTML = '<p class="sidebar-empty">Could not load history</p>';
             return;
         }
 
@@ -254,24 +261,20 @@ async function loadHistory() {
         const convos = data.conversations || [];
 
         if (convos.length === 0) {
-            historyList.innerHTML = '<p class="history-empty">No conversations yet</p>';
+            sidebarChats.innerHTML = '<p class="sidebar-empty">No conversations yet</p>';
             return;
         }
 
-        historyList.innerHTML = "";
+        sidebarChats.innerHTML = "";
         convos.forEach(c => {
-            const item = document.createElement("div");
-            item.className = "history-item";
-            const date = new Date(c.created_at).toLocaleDateString(undefined, {
-                month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
-            });
-            item.innerHTML = `
-                <div class="history-item-q">${escapeHtml(c.question)}</div>
-                <div class="history-item-date">${date}</div>
-            `;
-            item.addEventListener("click", () => {
+            const btn = document.createElement("button");
+            btn.className = "sidebar-chat-item";
+            btn.textContent = c.question;
+            btn.title = c.question;
+            btn.addEventListener("click", () => {
                 // Load this conversation into chat
-                welcomeScreen?.classList.add("hidden");
+                welcomeScreen.style.display = "none";
+                chatArea.querySelectorAll(".message").forEach(el => el.remove());
                 addMessage("user", c.question);
                 addMessage("assistant", c.answer);
                 if (c.citations && c.citations.length > 0) {
@@ -279,12 +282,15 @@ async function loadHistory() {
                     const lastBubble = bubbles[bubbles.length - 1];
                     if (lastBubble) appendCitations(lastBubble, c.citations);
                 }
-                historyPanel.classList.remove("open");
+                // Collapse sidebar on mobile
+                if (window.innerWidth <= 768) {
+                    sidebar.classList.add("collapsed");
+                }
             });
-            historyList.appendChild(item);
+            sidebarChats.appendChild(btn);
         });
     } catch {
-        historyList.innerHTML = '<p class="history-empty">Network error</p>';
+        sidebarChats.innerHTML = '<p class="sidebar-empty">Network error</p>';
     }
 }
 

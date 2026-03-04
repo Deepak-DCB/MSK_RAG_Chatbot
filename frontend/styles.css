@@ -64,14 +64,188 @@ body {
 }
 
 /* ── Layout ────────────────────────────────────────────────────────────────── */
+body {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.sidebar {
+    width: 260px;
+    min-width: 260px;
+    height: 100vh;
+    background: var(--bg-header);
+    display: flex;
+    flex-direction: column;
+    transition: margin-left 0.25s ease;
+    z-index: 60;
+}
+
+.sidebar.collapsed {
+    margin-left: -260px;
+}
+
+.sidebar-top {
+    padding: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.new-chat-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.85rem;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    color: #e2e8f0;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-family: inherit;
+}
+
+.new-chat-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.sidebar-chats {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem;
+}
+
+.sidebar-empty {
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 0.78rem;
+    text-align: center;
+    padding: 1.5rem 0.5rem;
+}
+
+.sidebar-chat-item {
+    display: block;
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+    margin-bottom: 2px;
+    transition: background 0.12s;
+    font-family: inherit;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sidebar-chat-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.sidebar-bottom {
+    padding: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-user {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+}
+
+.sidebar-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.sidebar-email {
+    flex: 1;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sidebar-logout {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.45);
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+}
+
+.sidebar-logout:hover {
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-signin {
+    width: 100%;
+    padding: 0.55rem;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-family: inherit;
+}
+
+.sidebar-signin:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.sidebar-toggle {
+    position: fixed;
+    top: 0.65rem;
+    left: 0.65rem;
+    z-index: 70;
+    background: var(--bg-header);
+    border: none;
+    color: white;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.sidebar.collapsed~.sidebar-toggle {
+    display: flex;
+}
+
 .app {
+    flex: 1;
     display: flex;
     flex-direction: column;
     height: 100vh;
-    max-width: 780px;
-    margin: 0 auto;
+    min-width: 0;
     background: var(--bg-chat);
-    box-shadow: 0 0 40px rgba(0, 0, 0, 0.06);
     position: relative;
 }
 
@@ -998,9 +1172,26 @@ body {
 }
 
 /* ── Responsive ────────────────────────────────────────────────────────────── */
-@media (max-width: 640px) {
-    .app {
-        max-width: 100%;
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        z-index: 80;
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .sidebar.collapsed {
+        margin-left: -260px;
+    }
+
+    .sidebar-toggle {
+        display: flex;
+    }
+
+    .sidebar~.sidebar-toggle {
+        display: flex;
     }
 
     .chat-area {
@@ -1017,6 +1208,7 @@ body {
 
     .header {
         padding: 0.6rem 0.85rem;
+        padding-left: 3rem;
     }
 
     .scenario-chips {
@@ -1025,10 +1217,6 @@ body {
 
     .welcome-heading h2 {
         font-size: 1.2rem;
-    }
-
-    .history-panel {
-        width: 100%;
     }
 
     .modal {
