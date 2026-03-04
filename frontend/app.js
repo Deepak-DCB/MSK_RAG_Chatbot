@@ -6,7 +6,23 @@ const API_URL = "https://msk-rag-chatbot.onrender.com";
 const SUPABASE_URL = "https://lmanobmmvrgpotioblih.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtYW5vYm1tdnJncG90aW9ibGloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MDE5OTgsImV4cCI6MjA4ODE3Nzk5OH0.gY-_zvAFsQd7Sfhq288Qvdn4uNa3tMQdr6BV4-IP5UI";
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let sb = null;
+try {
+    // UMD build may export createClient at different levels
+    const mod = window.supabase;
+    if (mod && mod.createClient) {
+        sb = mod.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } else if (mod && mod.supabase && mod.supabase.createClient) {
+        sb = mod.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } else if (mod && mod.default && mod.default.createClient) {
+        sb = mod.default.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } else {
+        console.warn("Supabase: createClient not found on window.supabase", mod);
+    }
+} catch (e) {
+    console.warn("Supabase init failed:", e);
+}
+const supabase = sb;
 
 // ── State ────────────────────────────────────────────────────────────────────
 let history = [];
@@ -50,22 +66,28 @@ document.addEventListener("DOMContentLoaded", async () => {
     bindChips();
     bindAuth();
 
-    // Check existing session
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-        setUser(session.user, session.access_token);
-        hideAuthModal();
-    }
+    if (supabase) {
+        try {
+            // Check existing session
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                setUser(session.user, session.access_token);
+                hideAuthModal();
+            }
 
-    // Listen for auth changes (Google redirect, etc.)
-    supabase.auth.onAuthStateChange((event, session) => {
-        if (session) {
-            setUser(session.user, session.access_token);
-            hideAuthModal();
-        } else {
-            clearUser();
+            // Listen for auth changes (Google redirect, etc.)
+            supabase.auth.onAuthStateChange((event, session) => {
+                if (session) {
+                    setUser(session.user, session.access_token);
+                    hideAuthModal();
+                } else {
+                    clearUser();
+                }
+            });
+        } catch (e) {
+            console.warn("Supabase session check failed:", e);
         }
-    });
+    }
 
     textarea.focus();
 });
@@ -94,6 +116,10 @@ function bindAuth() {
         const password = authPassword.value;
 
         try {
+            if (!supabase) {
+                authError.textContent = "Auth service unavailable. Try again later.";
+                return;
+            }
             let result;
             if (isSignUp) {
                 result = await supabase.auth.signUp({ email, password });
@@ -122,6 +148,7 @@ function bindAuth() {
 
     // Google OAuth
     googleBtn.addEventListener("click", async () => {
+        if (!supabase) { authError.textContent = "Auth service unavailable."; return; }
         const { error } = await supabase.auth.signInWithOAuth({
             provider: "google",
             options: {
@@ -142,7 +169,7 @@ function bindAuth() {
 
     // Logout
     logoutBtn.addEventListener("click", async () => {
-        await supabase.auth.signOut();
+        if (supabase) await supabase.auth.signOut();
         clearUser();
         historyPanel.classList.remove("open");
     });
