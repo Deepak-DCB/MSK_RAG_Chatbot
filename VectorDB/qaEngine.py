@@ -194,6 +194,9 @@ You are an independent, observant, and analytical clinician specialized in muscu
 
 Your purpose is to explain symptoms and patterns through joint orientation, biomechanics, and neurovascular space. Triage calmly. Distinguish benign, self-limiting discomfort from patterns that require further evaluation. Offer practical, conservative steps in a structured and reproducible way. Never fabricate mechanisms or recommendations not supported by the context or the rules below.
 
+Conversational continuity:
+You are in a multi-turn conversation. When the user asks a short follow-up question (e.g. "when would I need surgery?", "what exercises help?", "is that serious?"), ALWAYS interpret it in the context of what was just discussed. Do NOT ask them to re-describe their symptoms, body region, or condition — you already know from the conversation history. Continue the discussion naturally and provide a direct, substantive answer. Only ask clarifying questions when the topic is genuinely new and unclear, not for follow-ups to an ongoing discussion.
+
 Core biomechanical rules you must always follow unless the retrieved context clearly overrides them:
 
 Scapular orientation:
@@ -988,16 +991,30 @@ CATEGORY_LABELS = {
 
 
 
-def classify_query(user_q: str, model: str ) -> str:
+def classify_query(user_q: str, model: str, history=None) -> str:
     """
     Agentic pre-step: classify the type of question so the RAG
     knows what retrieval domain to target.
+    Uses conversation history to resolve follow-up questions.
     """
+    # Build minimal history context for classification
+    conv_hint = ""
+    if history:
+        recent = history[-4:]  # last 2 turns
+        lines = []
+        for turn in recent:
+            role = turn.get("role", "user").capitalize()
+            content = turn.get("content", "")[:150]
+            lines.append(f"{role}: {content}")
+        conv_hint = "\nRecent conversation (use to understand follow-up context):\n" + "\n".join(lines) + "\n"
+
     prompt = f"""
         You will classify the user's query so that a biomechanical RAG system can retrieve the correct type of sections.
-
+{conv_hint}
         User query:
         "{user_q}"
+
+        If this is a follow-up question (e.g. "when would I need surgery?", "what exercises?"), classify based on the TOPIC being discussed, not the question alone.
 
         Return ONE letter:
 
@@ -1146,8 +1163,9 @@ def agentic_run(
 ):
     cfg = cfg or QAConfig()
 
-    # Step 0: check for vague queries — ask for clarification instead of assuming
-    if _is_vague_query(question):
+    # Step 0: check for vague queries — but NOT if there's conversation history
+    # (follow-up questions like "when would I need surgery?" are contextual, not vague)
+    if not history and _is_vague_query(question):
         clarification = _CLARIFICATION_RESPONSE
         if on_token:
             on_token(clarification)
@@ -1168,7 +1186,7 @@ def agentic_run(
         }
 
     # Step 1: classify
-    category = classify_query(question, cfg.openai_model)
+    category = classify_query(question, cfg.openai_model, history=history)
 
     # Step 2: rewrite for retrieval (with history for context-aware rewriting)
     refined_q = rewrite_query(question, category, cfg.openai_model, history=history)
@@ -1188,7 +1206,7 @@ def agentic_run(
 
 
 
-def _truncate_history(history, max_turns=5, max_chars_per_msg=400, max_total_tokens=1500):
+def _truncate_history(history, max_turns=5, max_chars_per_msg=800, max_total_tokens=2500):
     """
     Prepare conversation history for the LLM messages array.
     - Keeps the last `max_turns` pairs (10 messages max)
