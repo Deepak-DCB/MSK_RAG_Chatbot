@@ -19,7 +19,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
   <!-- Styles -->
-  <link rel="stylesheet" href="styles.css?v=6" />
+  <link rel="stylesheet" href="styles.css?v=7" />
 </head>
 
 <body>
@@ -145,32 +145,170 @@
             <button class="region-chip" data-query="I have hip pain">Hip</button>
             <button class="region-chip" data-query="I have knee pain">Knee</button>
             <button class="region-chip" data-query="I have headaches that seem related to my neck">Headache</button>
+            <button class="region-chip" data-query="I have jaw pain and tightness on one side">Jaw / TMJ</button>
+            <button class="region-chip" data-query="I have pain and weakness in my arm">Arm</button>
+            <button class="region-chip" data-query="I have wrist pain and numbness in my fingers">Wrist / Hand</button>
             <button class="region-chip" data-query="I have tingling and numbness in my arm">Nerve / Tingling</button>
+            <button class="region-chip" data-query="I feel dizzy when I turn my head">Dizziness</button>
           </div>
         </div>
 
-        <div class="scenario-section">
-          <span class="scenario-label">Or try a clinical scenario:</span>
-          <div class="scenario-chips">
-            <button class="scenario-chip"
-              data-query="Explain the biomechanics of scapular dyskinesis and how it affects the shoulder.">
-              <span class="scenario-icon">🦴</span>
-              Scapular dyskinesis
-            </button>
-            <button class="scenario-chip"
-              data-query="What structures are usually responsible for thoracic outlet symptoms?">
-              <span class="scenario-icon">🫁</span>
-              Thoracic outlet
-            </button>
-            <button class="scenario-chip" data-query="How can atlas rotation contribute to headache patterns?">
-              <span class="scenario-icon">🧠</span>
-              Atlas &amp; headaches
-            </button>
-            <button class="scenario-chip"
-              data-query="What causes pain between the shoulder blades when sitting at a desk?">
-              <span class="scenario-icon">💺</span>
-              Desk posture pain
-            </button>
+        <div class="topics-library">
+          <span class="topics-heading">Clinical topics</span>
+
+          <!-- Biomechanics -->
+          <div class="topic-category">
+            <span class="category-label">Biomechanics</span>
+            <div class="scenario-chips">
+              <button class="scenario-chip"
+                data-query="Explain the biomechanics of scapular dyskinesis and how it affects the shoulder.">
+                <span class="scenario-icon">🦴</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Scapular Dyskinesis</span>
+                  <span class="scenario-desc">Altered shoulder blade motion and compensatory patterns</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="How does forward head posture affect the cervical spine and what muscles are involved?">
+                <span class="scenario-icon">🧍</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Forward Head Posture</span>
+                  <span class="scenario-desc">Cervical mechanics, suboccipitals, and deep flexors</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="What is the role of breathing mechanics in neck and thoracic pain?">
+                <span class="scenario-icon">🫁</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Breathing Mechanics</span>
+                  <span class="scenario-desc">Scalene overactivity, rib mobility, and diaphragm function</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="How does cervical instability or atlas misalignment affect the body?">
+                <span class="scenario-icon">⚙️</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Cervical Instability</span>
+                  <span class="scenario-desc">Atlas rotation, ligament laxity, and upper cervical patterns</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Nerve & Vascular -->
+          <div class="topic-category">
+            <span class="category-label">Nerve &amp; Vascular</span>
+            <div class="scenario-chips">
+              <button class="scenario-chip"
+                data-query="What structures are usually responsible for thoracic outlet symptoms?">
+                <span class="scenario-icon">🔴</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Thoracic Outlet Syndrome</span>
+                  <span class="scenario-desc">Interscalene triangle, costoclavicular compression</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="Explain the common sites of cervical radiculopathy and how nerve root compression presents.">
+                <span class="scenario-icon">⚡</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Cervical Radiculopathy</span>
+                  <span class="scenario-desc">Nerve root levels, dermatomal patterns, and motor signs</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="What is the difference between carpal tunnel syndrome and proximal nerve compression?">
+                <span class="scenario-icon">🤚</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Carpal Tunnel vs Proximal</span>
+                  <span class="scenario-desc">Median nerve entrapment — wrist vs double crush</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="Where does the ulnar nerve get compressed and what are the symptoms at each site?">
+                <span class="scenario-icon">💡</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Ulnar Nerve Entrapment</span>
+                  <span class="scenario-desc">Cubital tunnel, Guyon's canal, and compression sites</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Pain Patterns -->
+          <div class="topic-category">
+            <span class="category-label">Pain Patterns</span>
+            <div class="scenario-chips">
+              <button class="scenario-chip" data-query="How can atlas rotation contribute to headache patterns?">
+                <span class="scenario-icon">🧠</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Cervicogenic Headaches</span>
+                  <span class="scenario-desc">Upper cervical mechanics, suboccipital referral patterns</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="What causes pain between the shoulder blades when sitting at a desk?">
+                <span class="scenario-icon">🔥</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Interscapular Pain</span>
+                  <span class="scenario-desc">Rhomboid area discomfort from thoracic and postural causes</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="What is TMJ dysfunction and how does jaw pain relate to neck and head symptoms?">
+                <span class="scenario-icon">😬</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">TMJ Dysfunction</span>
+                  <span class="scenario-desc">Jaw mechanics, clenching, and referred head/neck pain</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="How does referred pain work and how do you know if arm pain is coming from the neck?">
+                <span class="scenario-icon">🎯</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Referred Pain Patterns</span>
+                  <span class="scenario-desc">Distinguishing local vs radicular vs referred sources</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Functional -->
+          <div class="topic-category">
+            <span class="category-label">Functional &amp; Activity</span>
+            <div class="scenario-chips">
+              <button class="scenario-chip"
+                data-query="What are the best ergonomic strategies and exercises for someone who works at a desk all day?">
+                <span class="scenario-icon">💺</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Desk Ergonomics</span>
+                  <span class="scenario-desc">Workstation setup, postural resets, and corrective exercises</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="What are common shoulder and neck issues in overhead athletes and how to address them?">
+                <span class="scenario-icon">🏋️</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Overhead Athletes</span>
+                  <span class="scenario-desc">Impingement, rotator cuff, and scapular control in sport</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="What are the long-term effects of whiplash and how should it be managed?">
+                <span class="scenario-icon">🚗</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Post-Whiplash</span>
+                  <span class="scenario-desc">Chronic neck pain, cervical instability, and recovery</span>
+                </div>
+              </button>
+              <button class="scenario-chip"
+                data-query="How does sleeping position affect neck and shoulder pain, and what positions are best?">
+                <span class="scenario-icon">😴</span>
+                <div class="scenario-text">
+                  <span class="scenario-title">Sleep Posture</span>
+                  <span class="scenario-desc">Pillow height, side vs back, and nocturnal nerve compression</span>
+                </div>
+              </button>
+            </div>
           </div>
         </div>
       </div>
