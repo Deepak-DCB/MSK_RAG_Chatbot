@@ -945,7 +945,7 @@ def format_context_block(context: List[Dict[str, Any]], width: int = 2000) -> st
     return "\n\n".join(parts)
 
 
-def build_prompt(question: str, context: List[Dict[str, Any]]) -> str:
+def build_prompt(question: str, context: List[Dict[str, Any]], history=None) -> str:
     ctx_block = format_context_block(context)
 
     # Simple heuristic: if the user asks about exercises/timing/frequency, use concise format
@@ -953,9 +953,27 @@ def build_prompt(question: str, context: List[Dict[str, Any]]) -> str:
         r'\b(exercise|exercises|when to|how often|how long|frequency|reps?|sets?|timing|dose|doseing)\b',
         re.I,
     )
-    use_sections = not bool(simple_q_re.search(question))
+    is_simple = bool(simple_q_re.search(question))
+    is_followup = bool(history and len(history) >= 2)
 
-    if use_sections:
+    if is_simple:
+        instructions = """
+        INSTRUCTIONS:
+        - Return a short, practical Markdown answer (no 7-section structure).
+        - Provide 3–6 numbered, actionable steps and a 1–2 sentence rationale.
+        - If the context is insufficient, say "Insufficient evidence in the supplied context."
+        - Keep it concise and focused on timing/dosing/pacing.
+        """
+    elif is_followup:
+        instructions = """
+        INSTRUCTIONS:
+        - This is a follow-up question in an ongoing conversation. Answer it directly and conversationally.
+        - Do NOT repeat the 7-section clinical structure — you already used it. The user wants a focused answer to their specific question.
+        - Use Markdown formatting (headers, short paragraphs, bullet points) for clarity.
+        - Be substantive but concise. Answer the question, then stop.
+        - If the context is insufficient, state: "Insufficient evidence in the supplied context."
+        """
+    else:
         instructions = """
         INSTRUCTIONS:
         - Return the answer formatted in Markdown (headers, short paragraphs, numbered lists where appropriate).
@@ -963,14 +981,6 @@ def build_prompt(question: str, context: List[Dict[str, Any]]) -> str:
         - Do NOT mention or quote the internal context or say "based on the context".
         - If the context is insufficient, state: "Insufficient evidence in the supplied context."
         - Keep the answer concise.
-        """
-    else:
-        instructions = """
-        INSTRUCTIONS:
-        - Return a short, practical Markdown answer (no 7-section structure).
-        - Provide 3–6 numbered, actionable steps and a 1–2 sentence rationale.
-        - If the context is insufficient, say "Insufficient evidence in the supplied context."
-        - Keep it concise and focused on timing/dosing/pacing.
         """
 
     return textwrap.dedent(f"""
@@ -1485,7 +1495,7 @@ def run_qa(
         }
 
     # prompt + generation
-    prompt = build_prompt(question, context)
+    prompt = build_prompt(question, context, history=history)
     context_tokens = sum(_chunk_tokens(it) for it in context)
     question_tokens = count_tokens(question)
 
