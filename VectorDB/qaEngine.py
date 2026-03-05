@@ -34,8 +34,13 @@ from openai import OpenAI
 import chromadb
 import numpy as np
 
+try:
+    from rank_bm25 import BM25Okapi
+except ImportError:
+    BM25Okapi = None
+
 # Embedding model constant (must match what was used to build chroma_store)
-EMBED_MODEL = "text-embedding-3-small"
+EMBED_MODEL = "text-embedding-3-large"
 
 
 
@@ -50,6 +55,9 @@ PERSIST_DIR = str(PROJECT_ROOT / "chroma_store")
 COLLECTION_NAME = "msk_chunks"
 
 OPENAI_MODEL = "gpt-4.1-mini"
+RERANKER_MODEL = "gpt-4.1-nano"   # fast/cheap model for reranking only
+RERANKER_MAX_CANDIDATES = 15      # limit candidates sent to reranker
+RERANKER_EXCERPT_TOKENS = 120     # truncate each excerpt for scoring
 
 DEFAULT_TOP_K = 4
 PER_SOURCE_MAX_CHUNKS = 3
@@ -374,6 +382,203 @@ def encode_query(text: str) -> list[list[float]]:
     """Embed a single query string via OpenAI and return as nested list for Chroma."""
     return openai_embed([text])
 
+
+# ── BM25 Sparse Index ────────────────────────────────────────────────────────
+
+class BM25Index:
+    """Lazy-loaded BM25 index built from ChromaDB collection documents."""
+    _instance = None
+
+    def __init__(self):
+        self._index = None
+        self._docs = None
+        self._ids = None
+        self._metas = None
+
+    @classmethod
+    def get(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def _build(self, collection):
+        """Build BM25 index from all docs in the collection."""
+        if self._index is not None:
+            return
+        if BM25Okapi is None:
+            return
+
+        # Fetch all docs from ChromaDB
+        count = collection.count()
+        if count == 0:
+            return
+
+        all_data = collection.get(include=["documents", "metadatas"])
+        self._ids = all_data["ids"]
+        self._docs = all_data["documents"]
+        self._metas = all_data["metadatas"]
+
+        # Tokenize for BM25 (simple whitespace + lowercase)
+        tokenized = [doc.lower().split() for doc in self._docs]
+        self._index = BM25Okapi(tokenized)
+
+    def search(self, query: str, top_n: int = 50) -> list[dict]:
+        """Return top_n BM25 results as [{text, meta, bm25_score}]."""
+        if self._index is None:
+            return []
+
+        q_tokens = query.lower().split()
+        scores = self._index.get_scores(q_tokens)
+
+        top_indices = np.argsort(scores)[::-1][:top_n]
+        results = []
+        for idx in top_indices:
+            if scores[idx] <= 0:
+                break
+            results.append({
+                "text": self._docs[idx],
+                "meta": self._metas[idx],
+                "bm25_score": float(scores[idx]),
+            })
+        return results
+
+
+def hybrid_search(
+    question: str,
+    collection,
+    retrieval_pool: int = 50,
+    rrf_k: int = 60,
+) -> dict:
+    """
+    Hybrid search: dense (ChromaDB) + sparse (BM25) with Reciprocal Rank Fusion.
+    Returns results in the same format as collection.query().
+    """
+    # Dense search
+    q_emb = encode_query(question)
+    dense_raw = collection.query(query_embeddings=q_emb, n_results=retrieval_pool)
+
+    # BM25 search (if available)
+    bm25_idx = BM25Index.get()
+    bm25_idx._build(collection)
+    bm25_results = bm25_idx.search(question, top_n=retrieval_pool)
+
+    if not bm25_results:
+        # BM25 unavailable — return dense-only results
+        return dense_raw
+
+    # RRF fusion
+    doc_scores = {}  # text_hash -> {text, meta, rrf_score}
+
+    # Score dense results
+    dense_docs = dense_raw.get("documents", [[]])[0]
+    dense_metas = dense_raw.get("metadatas", [[]])[0]
+    dense_dists = dense_raw.get("distances", [[]])[0]
+
+    for rank, (doc, meta, dist) in enumerate(zip(dense_docs, dense_metas, dense_dists)):
+        key = hash(doc[:200])
+        rrf = 1.0 / (rrf_k + rank + 1)
+        if key in doc_scores:
+            doc_scores[key]["rrf_score"] += rrf
+        else:
+            doc_scores[key] = {"text": doc, "meta": meta, "dist": float(dist), "rrf_score": rrf}
+
+    # Score BM25 results
+    for rank, item in enumerate(bm25_results):
+        key = hash(item["text"][:200])
+        rrf = 1.0 / (rrf_k + rank + 1)
+        if key in doc_scores:
+            doc_scores[key]["rrf_score"] += rrf
+        else:
+            # BM25-only result: assign a high base distance (will be reranked anyway)
+            doc_scores[key] = {"text": item["text"], "meta": item["meta"], "dist": 0.9, "rrf_score": rrf}
+
+    # Sort by RRF score (higher = better), convert to distance (lower = better)
+    fused = sorted(doc_scores.values(), key=lambda x: x["rrf_score"], reverse=True)[:retrieval_pool]
+
+    # Convert back to ChromaDB-style result format
+    max_rrf = fused[0]["rrf_score"] if fused else 1.0
+    result = {
+        "documents": [[f["text"] for f in fused]],
+        "metadatas": [[f["meta"] for f in fused]],
+        "distances": [[1.0 - (f["rrf_score"] / max_rrf) * 0.5 for f in fused]],  # normalize to 0.5-1.0 range
+    }
+    return result
+
+
+# ── Multi-Query Retrieval ────────────────────────────────────────────────────
+
+def generate_multi_queries(question: str, n: int = 2) -> list[str]:
+    """
+    Generate n alternative query reformulations for broader retrieval coverage.
+    Uses the cheapest/fastest model.
+    """
+    prompt = f"""Generate {n} alternative search queries for the following question.
+Each query should approach the topic from a different angle to find relevant medical content.
+Return ONLY the queries, one per line, no numbering or commentary.
+
+Original question: "{question}"
+"""
+    try:
+        answer, _, _ = ask_openai_llm(prompt, model=RERANKER_MODEL, num_predict=150)
+        lines = [l.strip() for l in answer.strip().split("\n") if l.strip()]
+        # Return up to n reformulations
+        return lines[:n]
+    except Exception:
+        return []
+
+
+# ── Context Compression ──────────────────────────────────────────────────────
+
+def compress_context(
+    context: list[dict],
+    question: str,
+    keep_ratio: float = 0.65,
+) -> list[dict]:
+    """
+    Extract the most relevant sentences from each context chunk.
+    Uses keyword overlap scoring to keep only the most relevant ~65% of sentences.
+    """
+    q_tokens = set(question.lower().split())
+    # Remove stop words for better matching
+    stop = {"the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to",
+            "for", "of", "and", "or", "but", "with", "from", "by", "it", "its",
+            "i", "my", "me", "have", "has", "had", "do", "does", "did", "can",
+            "what", "how", "when", "where", "why", "which", "that", "this"}
+    q_tokens -= stop
+
+    if not q_tokens:
+        return context
+
+    compressed = []
+    for item in context:
+        text = item["text"]
+        # Split into sentences
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+
+        if len(sentences) <= 3:
+            # Too short to compress
+            compressed.append(item)
+            continue
+
+        # Score each sentence by keyword overlap
+        scored = []
+        for sent in sentences:
+            s_tokens = set(sent.lower().split()) - stop
+            overlap = len(q_tokens & s_tokens)
+            scored.append((sent, overlap))
+
+        # Keep top keep_ratio of sentences (at least 2, at most all)
+        keep_n = max(2, int(len(scored) * keep_ratio))
+        # Sort by score, take top, then restore original order
+        top_indices = sorted(
+            sorted(range(len(scored)), key=lambda i: scored[i][1], reverse=True)[:keep_n]
+        )
+        kept = " ".join(scored[i][0] for i in top_indices)
+
+        compressed.append({**item, "text": kept})
+
+    return compressed
+
 NARRATIVE_SECTION_PATTERNS = [
     "case report",
     "case-report",
@@ -585,26 +790,32 @@ def maybe_rerank(
     top_n: int,
 ) -> List[Dict[str, Any]]:
     """
-    Batch LLM-based reranker: sends one prompt containing all candidates and returns ranked top_n.
-    This replaces per-candidate calls to llm_rerank_score.
+    Optimized batch LLM reranker:
+    - Limits to top RERANKER_MAX_CANDIDATES by distance (skip clearly bad ones)
+    - Truncates each excerpt to RERANKER_EXCERPT_TOKENS (~120 tokens ≈ 480 chars)
+    - Uses RERANKER_MODEL (gpt-4.1-nano) instead of the main generation model
     """
     if not candidates:
         return candidates
 
-    # Build enumerated list of short candidate excerpts (truncate to safe length to keep prompt small)
+    # Pre-sort by distance and limit — no point reranking obviously bad candidates
+    sorted_cands = sorted(candidates, key=lambda x: x["dist"])
+    to_rerank = sorted_cands[:RERANKER_MAX_CANDIDATES]
+    rest = sorted_cands[RERANKER_MAX_CANDIDATES:]
+
+    # Build enumerated list with truncated excerpts
+    max_chars = RERANKER_EXCERPT_TOKENS * 4  # ~4 chars/token
     items = []
-    for i, c in enumerate(candidates, start=1):
-        text = c["text"]
-        # keep excerpt short for scoring prompt; preserve enough context
-        excerpt = text.replace("\n", " ").strip()
+    for i, c in enumerate(to_rerank, start=1):
+        excerpt = c["text"].replace("\n", " ").strip()
+        if len(excerpt) > max_chars:
+            excerpt = excerpt[:max_chars] + "…"
         items.append((i, excerpt, c))
 
     prompt_lines = [
-        "You are scoring how relevant each of the following retrieved text chunks is for answering the query.",
-        "Return a comma-separated list of numbers (one score per item) from 0 to 10 matching item order. No commentary.",
+        "Score each chunk's relevance to the query (0-10). Return comma-separated scores only.",
         "",
-        f"User query:",
-        question,
+        f"Query: {question}",
         "",
         "Chunks:"
     ]
@@ -613,37 +824,32 @@ def maybe_rerank(
 
     prompt = "\n".join(prompt_lines)
 
-    answer, _, _ = ask_openai_llm(prompt, model=openai_model, num_predict=512)
-    # Expect answers like: "8, 6.5, 0, 7, 4" or lines "1: 8\n2: 6.5\n..."
-    text = (answer or "").strip()
-    scores = []
-    # try parsing robustly
-    # first try comma-separated floats
     try:
+        answer, _, _ = ask_openai_llm(prompt, model=RERANKER_MODEL, num_predict=256)
+        text = (answer or "").strip()
+
+        # Parse scores robustly
         if "," in text:
             tokens = [t.strip() for t in text.split(",")]
-            for i, (_, _, c) in enumerate(items):
-                val = float(tokens[i]) if i < len(tokens) else 0.0
-                scores.append((c, val))
         else:
-            # fallback: parse any floats in order
-            floats = [float(m) for m in re.findall(r"[-+]?\d*\.\d+|\d+", text)]
-            for i, (_, _, c) in enumerate(items):
-                val = floats[i] if i < len(floats) else 0.0
-                scores.append((c, val))
+            tokens = re.findall(r"[-+]?\d*\.?\d+", text)
+
+        reranked = []
+        for i, (_, _, c) in enumerate(items):
+            val = float(tokens[i]) if i < len(tokens) else 0.0
+            val = max(0.0, min(10.0, val))
+            dist = 1.0 - (val / 10.0)
+            reranked.append({"text": c["text"], "meta": c["meta"], "dist": dist})
+
+        reranked.sort(key=lambda x: x["dist"])
+
     except Exception:
-        # if parsing fails, fallback to original distance
-        return sorted(candidates, key=lambda x: x["dist"])[:max(1, min(top_n,len(candidates)))]
+        # On failure, keep original distance ordering
+        reranked = to_rerank
 
-    # convert score -> distance (lower = better)
-    reranked = []
-    for c, val in scores:
-        val = max(0.0, min(10.0, val))
-        dist = 1.0 - (val / 10.0)
-        reranked.append({"text": c["text"], "meta": c["meta"], "dist": dist})
-
-    reranked.sort(key=lambda x: x["dist"])
-    return reranked[:max(1, min(top_n, len(reranked)))]
+    # Append the rest (already sorted by distance) after reranked results
+    result = reranked + rest
+    return result[:max(1, min(top_n, len(result)))]
 
 
 
@@ -1123,8 +1329,28 @@ def run_qa(
     coll = _backend.load_collection()
 
     t0 = time.time()
-    q_emb = encode_query(question)
-    raw = coll.query(query_embeddings=q_emb, n_results=cfg.retrieval_pool)
+
+    # ---- Hybrid search (dense + BM25) with multi-query ----
+    raw = hybrid_search(question, coll, retrieval_pool=cfg.retrieval_pool)
+
+    # Multi-query: generate 2 reformulations for broader coverage
+    alt_queries = generate_multi_queries(question, n=2)
+    for alt_q in alt_queries:
+        alt_raw = hybrid_search(alt_q, coll, retrieval_pool=cfg.retrieval_pool // 2)
+        # Merge into main results (dedup by text hash)
+        seen = set(hash(d[:200]) for d in raw.get("documents", [[]])[0])
+        for doc, meta, dist in zip(
+            alt_raw.get("documents", [[]])[0],
+            alt_raw.get("metadatas", [[]])[0],
+            alt_raw.get("distances", [[]])[0],
+        ):
+            key = hash(doc[:200])
+            if key not in seen:
+                seen.add(key)
+                raw["documents"][0].append(doc)
+                raw["metadatas"][0].append(meta)
+                raw["distances"][0].append(dist)
+
     retrieval_time = time.time() - t0
 
     if not raw or not raw.get("documents") or not raw["documents"][0]:
@@ -1218,6 +1444,9 @@ def run_qa(
         budget_tokens=effective_budget_tokens,
         neighbor_headroom=cfg.neighbor_headroom,
     )
+
+    # ---- Context compression: keep only the most relevant sentences ----
+    context = compress_context(context, question)
 
     if not context:
         return {
