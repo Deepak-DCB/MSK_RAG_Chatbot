@@ -70,7 +70,9 @@ For each user query:
 
 **Conversational follow-ups**: The system adapts its answer format based on conversation history. Initial clinical questions receive the **7-section biomechanical structure** (primary driver → neural consequences → muscular pattern → secondary effects → correction order → corrective emphasis → practical steps). Follow-up questions receive shorter, **direct conversational answers** without repeating the full structure.
 
-<img width="6044" height="3124" alt="MSK RAG architecture diagram" src="https://github.com/user-attachments/assets/2b376e20-653e-4885-b228-b4ec330d98f0" />
+<img alt="MSK Triage Chatbot — Welcome screen with region chips and clinical topic cards" src="docs/screenshots/welcome_screen.png" />
+
+<img alt="MSK Triage Chatbot — Clinical topic categories (Pain Patterns, Functional & Activity)" src="docs/screenshots/clinical_topics.png" />
 
 ---
 
@@ -89,7 +91,9 @@ For each user query:
 - **Reproducible by construction:** Immutable vector stores, fixed retrieval rules, and deterministic context packing yield identical behavior for identical inputs.
 
 
-<img width="2879" height="1799" alt="Streamlit UI with retrieval telemetry" src="https://github.com/user-attachments/assets/a5cf6d57-edfe-41cc-a4ae-5779213506d7" />
+<img alt="MSK Triage Chatbot — 7-section biomechanical response with citations" src="docs/screenshots/conversation_response.png" />
+
+<img alt="MSK Triage Chatbot — Telemetry panel showing retrieval stats and token usage" src="docs/screenshots/telemetry_panel.png" />
 
 
 ---
