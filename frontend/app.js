@@ -29,6 +29,7 @@ let history = [];
 let isLoading = false;
 let currentUser = null;
 let accessToken = null;
+let userScrolledUp = false;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const chatArea = document.getElementById("chat-area");
@@ -63,6 +64,22 @@ const logoutBtn = document.getElementById("logout-btn");
 const sidebarSigninBtn = document.getElementById("sidebar-signin-btn");
 
 let isSignUp = false;
+
+// ── Smart auto-scroll ────────────────────────────────────────────────────────
+function shouldAutoScroll() {
+    const threshold = 150;
+    return chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight < threshold;
+}
+chatArea.addEventListener("scroll", () => {
+    if (isLoading) {
+        userScrolledUp = !shouldAutoScroll();
+    }
+});
+function scrollIfNeeded() {
+    if (!userScrolledUp) {
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+}
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 async function init() {
@@ -328,6 +345,7 @@ async function sendQuestion() {
     if (!question || isLoading) return;
 
     isLoading = true;
+    userScrolledUp = false;
     sendBtn.disabled = true;
     textarea.value = "";
     textarea.style.height = "auto";
@@ -389,7 +407,7 @@ async function sendQuestion() {
                         } else if (obj.token) {
                             fullText += obj.token;
                             bubble.innerHTML = renderMarkdown(fullText);
-                            chatArea.scrollTop = chatArea.scrollHeight;
+                            scrollIfNeeded();
                         }
                     } catch { /* skip */ }
                 }
@@ -448,7 +466,7 @@ function createAssistantBubble() {
     msgDiv.appendChild(avatar);
     msgDiv.appendChild(bubble);
     chatArea.appendChild(msgDiv);
-    chatArea.scrollTop = chatArea.scrollHeight;
+    scrollIfNeeded();
 
     return { msgDiv, bubble };
 }
@@ -474,7 +492,7 @@ function addMessage(role, text) {
     msgDiv.appendChild(avatar);
     msgDiv.appendChild(bubble);
     chatArea.appendChild(msgDiv);
-    chatArea.scrollTop = chatArea.scrollHeight;
+    scrollIfNeeded();
 }
 
 // ── Citations ────────────────────────────────────────────────────────────────
