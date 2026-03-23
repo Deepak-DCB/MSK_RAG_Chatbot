@@ -1,247 +1,280 @@
-# MSK RAG Chatbot  
-### Biomechanics Clinical Question Answering using MSK Neurology (Retrieval-Augmented Generation)
+# MSK RAG Chatbot
 
-## TL;DR
+Domain-specific retrieval system for evidence-grounded musculoskeletal triage and biomechanics Q&A.
 
-**This is:** A retrieval systems engineering case study in a constrained clinical domain.  
-**This is not:** A diagnostic tool, autonomous clinician, or end-to-end learned medical model.
+This repository is best understood as a `retrieval engineering project`, not a generic chatbot demo. The chat UI exists to inspect the system, but the main artifact is the retrieval pipeline, the evaluation harness, and the evidence showing what works, what fails, and how the system is observed.
 
-- Domain-constrained RAG system for musculoskeletal neurology and biomechanics  
-- Retrieval-first design with hybrid dense + sparse search, multi-query expansion, and deterministic context assembly  
-- Agentic query classification, rewriting, and conversational follow-up handling  
-- No fine-tuning, no end-to-end black box; emphasis on inspectability and failure analysis
+> Educational triage support only. This project does not diagnose, replace a clinician, or present itself as a medical device.
 
+## 30-Second View
 
+- `System identity:` production-minded RAG pipeline over a constrained MSK biomechanics corpus mirrored from `MSKNeurology.com`
+- `Retrieval design:` history-aware query rewrite/classification, hybrid dense + BM25 retrieval, adaptive multi-query expansion, explicit biasing, deterministic context packing, optional per-source reranking
+- `Operational discipline:` FastAPI backend, SSE streaming, server-side safety caps, request allowlisting, rate limiting, deployment split across Render + Vercel
+- `Observability:` backend emits rich metadata (citations, confidence, timings, token counts, refined query, category, reranker/config metadata, stream completion status); frontend renders a practical subset
+- `Evaluation:` gold-set retrieval metrics, production-faithful run artifacts, explicit answer-grounding and red-flag safety checks, plus visible negative-result ablations
 
-This repository implements a **retrieval-augmented question answering (RAG) system** for answering **mechanism-level clinical questions** grounded in a corpus of 20 articles (1,301 chunks) derived from **MSKNeurology.com** (Kjetil Larsen).
+## Why This Repo Exists
 
-Rather than treating the LLM as an end-to-end reasoning engine, the system treats **answer quality as an effect of retrieval quality**, and so is designed to expose, constrain, and debug each step of the retrieval and context-selection process.
+The project goal is not "make an LLM talk about MSK topics." It is to show strong engineering judgment in a narrow, safety-sensitive retrieval setting:
 
-The system surfaces retrieved chunks, distances, heuristic adjustments, reranking behavior, token budgets, latency, and confidence signals so that outputs can be **inspected, audited, and failure-mode analyzed**.
+- answers should be traceable to retrieved evidence
+- retrieval behavior should be inspectable instead of prompt-magic only
+- quality claims should be backed by measured artifacts
+- failure modes should be visible, not hidden behind fluent output
 
-> **Note:** This system is not a medical device and does not provide diagnoses or treatment recommendations. It is an educational and research-oriented explainer grounded strictly in retrieved corpus content.
+The repo is intended to signal hiring-ready AI engineering work in retrieval, evaluation, observability, and production discipline.
 
----
+## Architecture
 
-## Motivation
+The canonical runtime surfaces are:
 
-Musculoskeletal neurology is a narrow domain where valid explanations depend on **anatomy, biomechanics, and neurovascular space**, typically described in long-form clinical articles rather than structured knowledge bases.
+- `backend/main.py` - FastAPI API, streaming contract, safety caps, rate limiting, request config allowlist
+- `VectorDB/qaEngine.py` - core retrieval and answer pipeline
+- `frontend/app.js`, `frontend/index.html`, `frontend/styles.css` - chat UI and telemetry rendering
+- `scripts/run_eval_production.py` - production-faithful evaluation runner
 
-General-purpose language models frequently hallucinate or over-generalize in this domain when used without strong retrieval constraints.
+### Retrieval pipeline
 
-This project explores how far **explicit retrieval design, deterministic context assembly, and domain-encoded heuristics**—rather than increasingly complex prompting or fine-tuning—can improve answer traceability, interpretability, and robustness in a specialized clinical corpus.
+The online query path is intentionally explicit:
 
----
+1. vagueness gate for underspecified prompts
+2. history-aware query classification and rewrite
+3. adaptive multi-query expansion when confidence is weak
+4. hybrid dense + BM25 retrieval fused with reciprocal rank fusion
+5. section/topic biasing to reward mechanism-dense content and suppress low-yield narrative sections
+6. optional per-source reranking
+7. deterministic context packing under token and per-source caps
+8. context compression to keep the most relevant sentence-level evidence
+9. answer generation grounded in packed retrieved context, with bounded conversation context and explicit safety instructions
 
-## System overview
+### Why each component exists
 
-The system is structured as a **three-stage pipeline**: offline corpus processing, persistent retrieval infrastructure, and online query-time reasoning.
+| Component | Why it exists |
+|---|---|
+| Query rewrite + classification | Short conversational follow-ups like "what about for TOS?" need anatomical context restored before retrieval |
+| Hybrid dense + BM25 | Dense search helps semantic paraphrase; BM25 catches corpus-specific keywords and article titles |
+| Adaptive multi-query expansion | Broader retrieval recall is useful, but only when initial confidence is weak |
+| Heuristic biasing | Long-form clinical articles contain both mechanism sections and narrative sections; explicit biasing keeps the ranking inspectable |
+| Deterministic context packing | Makes answer inputs reproducible and debuggable instead of letting prompt size drift |
+| Optional reranker | Lets the repo test whether a more expensive ranking step helps enough to justify itself |
 
-### 1. Offline corpus processing
+## Measured Evidence
 
-- HTML articles from MSKNeurology.com are mirrored locally.
-- Text is cleaned and segmented using **sentence-first, token-aware chunking**.
-- Each chunk is annotated with article, section, position, and token-length metadata.
-- Outputs are persisted as a structured chunk table (`chunks.parquet`) used for downstream retrieval.
+### Checked-in ablation evidence
 
-### 2. Persistent retrieval infrastructure
+The repository already includes two retrieval ablation outputs from the earlier topic-aware evaluation harness:
 
-- Dense embeddings are generated for all chunks using **OpenAI `text-embedding-3-large`** (3072-dim), called via the embeddings API.
-- Embeddings and metadata are stored in a **persistent ChromaDB collection** (~62 MB), committed to the repository and rebuilt with a standalone builder script.
-- A **lazy-loaded BM25 sparse index** is built at first query from the same ChromaDB documents for keyword-based retrieval alongside dense search.
-- All retrieval artifacts are **immutable at query time**, enabling reproducible behavior across runs.
-- No local embedding model is required at runtime — query embedding uses the same OpenAI API.
+- `eval_results_topicaware.json`
+- `eval_results_topicaware_reranked.json`
 
-### 3. Query-time reasoning (agentic pipeline)
+These files cover 50 gold-set questions. Their summary is computed directly from repository artifacts and can be regenerated with `python scripts/summarize_eval_results.py --format markdown`.
 
-For each user query:
+| Variant | Evidence file | Cases | Hit@1 article | Hit@5 chunk | MRR article | MRR chunk | NDCG@5 | Result |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| Topic-aware baseline | `eval_results_topicaware.json` | 50 | 98.0% | 94.0% | 0.990 | 0.762 | 0.787 | Strong baseline |
+| Topic-aware + per-source reranker | `eval_results_topicaware_reranked.json` | 50 | 60.0% | 38.0% | 0.722 | 0.281 | 0.273 | Negative result |
 
-1. **Vagueness check** — Short queries without anatomical or symptom specificity are caught early and prompted for clarification. This check is **bypassed for follow-up questions** (when conversation history exists).
-2. **Agentic query classification** assigns the query to a biomechanical category (benign, MSKNeurology-style syndrome, rare/serious, or unclear). Classification is **history-aware**: follow-up questions like "does it need surgery?" are classified based on the ongoing topic, not the query in isolation.
-3. The query is **rewritten into biomechanics-aligned language** using conversation history to resolve pronouns and short follow-ups (e.g., "what about for TOS?" → full biomechanical query).
-4. **Multi-query retrieval**: 2 alternative query reformulations are generated (via `gpt-4.1-nano`) and merged with the original to broaden retrieval coverage.
-5. **Hybrid search** combines dense retrieval (ChromaDB) with sparse retrieval (BM25) using **Reciprocal Rank Fusion (RRF)** for robust ranking.
-6. **Domain-specific heuristic biasing** adjusts distances to promote mechanism-dense sections (e.g., anatomy, biomechanics, assessment) and penalize narrative or low-yield content (e.g., case reports).  
-   Long-form clinical text has structure that dense embeddings alone do not respect. Section headers, narrative vs. mechanism content, and article context matter. Heuristics encode these domain priors explicitly so failure modes remain inspectable.
-7. An **optimized LLM-based reranker** (`gpt-4.1-nano`) reorders chunks *within each source article* rather than globally. Excerpts are truncated to 120 tokens and limited to 15 candidates for efficiency.
-8. **Context compression** extracts only the most relevant sentences from each retrieved chunk using keyword-overlap scoring, reducing prompt size and focusing the LLM on pertinent information.
-9. Retrieved chunks are **grouped by source**, prioritized by section, and **deterministically packed under a fixed token budget** (10,000 tokens), including controlled neighbor headroom.
-10. A grounded answer is generated **strictly from the assembled context** using `gpt-4.1-mini`, with no external knowledge injection.
+The important point is not that every component helped. The important point is that the repo preserves the negative result and makes the tradeoff visible. In the current checked-in evidence, the reranked variant is worse than the baseline.
 
-**Conversational follow-ups**: The system adapts its answer format based on conversation history. Initial clinical questions receive the **7-section biomechanical structure** (primary driver → neural consequences → muscular pattern → secondary effects → correction order → corrective emphasis → practical steps). Follow-up questions receive shorter, **direct conversational answers** without repeating the full structure.
+### Canonical evaluation harness
 
-#### Current deployed UI
+The current production-faithful runner is `scripts/run_eval_production.py`. It writes:
+
+- `Evaluation/runs/<run_id>/cases.jsonl`
+- `Evaluation/runs/<run_id>/run_report.json`
+- `Evaluation/runs/<run_id>/run_notes.md`
+
+It captures:
+
+- commit hash, dataset hash, dataset version, pipeline mode, and model config
+- retrieval metrics when gold labels exist
+- latency, token, cost, and confidence telemetry
+- explicit `not_evaluated` markers for unsupported layers instead of placeholder zeros
+
+See `docs/evaluation.md` for commands and metric definitions.
+
+## Answer-Level, Citation, and Safety Checks
+
+The repo now makes answer-level evaluation explicit instead of leaving it implied.
+
+Datasets already in the repo:
+
+- `datasets/citation-tests.jsonl` - citation / grounding checks
+- `datasets/red-flag-cases.jsonl` - urgent escalation behavior
+- `datasets/triage-cases.jsonl` - topic coverage, uncertainty language, and triage expectations
+
+The production runner auto-detects these dataset types and reports:
+
+- `grounding:` required-source citation rate and rule-based claim-support match rate
+- `safety:` red-flag escalation recall, precision, false reassurance rate, critical failures
+- `answer_quality:` topic coverage and required uncertainty pass rate
+
+These are still automated rule-based checks, not clinician review. The repo says that plainly and keeps clinician review as `not_evaluated` until a human rubric is applied.
+
+## Observability
+
+This system exposes much more than an answer string.
+
+Live API and streaming metadata include:
+
+- citations
+- retrieval confidence
+- retrieval and generation timing
+- prompt, output, context, and question token counts
+- category and category label
+- refined query
+- reranker mode and `reranker_top_n`
+- `config_source` showing whether defaults or request overrides were used
+- streaming `complete`, `error`, and `request_id` fields for failed/incomplete runs
+
+The frontend telemetry panel currently renders a subset (retrieval/generation/total timing, prompt/output tokens, confidence, reranker mode, category, refined query), while the backend and eval artifacts carry the full metadata family.
+
+Concrete examples are documented in `docs/observability.md`.
+
+## Failure Modes and Mitigations
+
+The repo explicitly documents common failure modes instead of pretending the system is solved:
+
+- wrong article retrieved because the question is underspecified
+- right article, wrong chunk because long-form clinical text mixes mechanism and narrative content
+- reranker hurts more than it helps
+- answer sounds plausible while grounding is thin
+- urgent cases are under-escalated or falsely reassured
+- streaming/runtime failures are hard to debug without final metadata
+
+See `docs/failure-modes.md` for the current mitigation story.
+
+## Deployment and Runtime Discipline
+
+The deployed architecture is:
+
+```text
+Browser -> Vercel static frontend -> Render FastAPI backend -> ChromaDB + OpenAI API
+```
+
+### What is deployed
+
+- `frontend/` on Vercel: static chat interface with SSE streaming and telemetry display
+- `backend/main.py` on Render: `/health`, `/ask`, `/ask/stream`, `/history`
+- `chroma_store/`: committed persistent Chroma collection used at runtime
+- optional Supabase-backed auth and conversation persistence (JWT auth for `/history`)
+
+### Live links
+
+- Frontend (deployed app): `https://msk-triage-chatbot.vercel.app`
+- Backend API: `https://msk-rag-chatbot.onrender.com`
+
+### Production-minded backend controls
+
+- max question length: `1000`
+- max history turns: `5`
+- max output tokens: `1000`
+- per-IP rate limit: `5 requests / 60s`
+- public request overrides restricted to reranker toggles only
+- proxy-aware client IP handling is supported when trusted proxy settings are configured
+
+That allowlist matters: it keeps retrieval and token-budget behavior server-owned while still allowing controlled ablation of reranker settings.
+
+## Repository Tour
+
+```text
+backend/main.py                   FastAPI contract, SSE streaming, auth/history, safety caps
+VectorDB/qaEngine.py             Retrieval + ranking + packing + answer generation
+scripts/run_eval_production.py   Canonical production-faithful evaluation runner
+scripts/summarize_eval_results.py Summarize checked-in ablation outputs
+docs/evaluation.md               Recruiter-readable evaluation guide
+docs/observability.md            Telemetry and response-shape guide
+docs/failure-modes.md            Explicit failure modes and mitigations
+datasets/*.jsonl                 Grounding, safety, and triage eval datasets
+render.yaml                      Render deployment blueprint
+frontend/vercel.json             Vercel routing config
+```
+
+## UI Is Secondary, But Included
+
+The chat interface is useful because it exposes the retrieval system in a human-inspectable way:
 
 <img alt="MSK Triage Chatbot — Welcome screen with region chips and clinical topic cards" src="docs/screenshots/welcome_screen.png" />
 
 <img alt="MSK Triage Chatbot — Clinical topic categories (Pain Patterns, Functional & Activity)" src="docs/screenshots/clinical_topics.png" />
 
-#### Original graduation project architecture
+### Original graduation project architecture
 
 <img width="6044" height="3124" alt="MSK RAG architecture diagram" src="https://github.com/user-attachments/assets/2b376e20-653e-4885-b228-b4ec330d98f0" />
-
----
-
-## Key design choices
-
-- **Retrieval first, generation last:** The language model explains retrieved mechanisms; it does not invent them.
-- **Hybrid retrieval:** Dense embeddings (semantic) + BM25 (keyword) fused via RRF for robust ranking across query types.
-- **Multi-query expansion:** Alternative query reformulations broaden retrieval coverage for complex or nuanced questions.
-- **Agentic retrieval alignment:** Queries are classified and rewritten to match the biomechanical language used in the corpus.
-- **Heuristic biasing over opaque ranking:** Section priority, narrative penalties, and topic bonuses encode domain knowledge explicitly.
-- **Deterministic context assembly:** Token budgets, per-source limits, and selection rules are fixed and inspectable.
-- **Per-source reranking:** LLM reranking operates within articles to preserve topical coherence.
-- **Conversational continuity:** Follow-up questions are interpreted in context, never triggering re-clarification for details already discussed.
-- **Telemetry by default:** Retrieval confidence, timing, token usage, and selected sources are exposed in the UI.
-- **No local model required:** All embedding and generation is handled by OpenAI APIs. No PyTorch, no GPU, under 200 MB runtime memory.
-- **Reproducible by construction:** Immutable vector stores, fixed retrieval rules, and deterministic context packing yield identical behavior for identical inputs.
-
-
-#### Current deployed UI — response and telemetry
 
 <img alt="MSK Triage Chatbot — 7-section biomechanical response with citations" src="docs/screenshots/conversation_response.png" />
 
 <img alt="MSK Triage Chatbot — Telemetry panel showing retrieval stats and token usage" src="docs/screenshots/telemetry_panel.png" />
 
-#### Original graduation project — Streamlit UI with retrieval telemetry
+### Original graduation project - Streamlit UI with retrieval telemetry
 
 <img width="2879" height="1799" alt="Streamlit UI with retrieval telemetry" src="https://github.com/user-attachments/assets/a5cf6d57-edfe-41cc-a4ae-5779213506d7" />
 
+The UI is not the main portfolio claim. The portfolio claim is that the retrieval system behind it is measurable and inspectable.
 
----
+## Local Setup
 
-## Live deployment
-
-The system is deployed as a split architecture for free-tier hosting:
-
-```
-Browser → Vercel (static frontend) → Render (FastAPI backend) → ChromaDB + OpenAI API
-```
-
-- **Frontend** (Vercel Free): Static HTML/CSS/JS chat interface at `frontend/`
-  - 12 quick-start region chips + 16 categorized clinical topic cards with SVG icons
-  - Real-time token streaming via SSE
-  - Telemetry display (retrieval confidence, source count, latency, token usage)
-- **Backend** (Render Free): FastAPI app at `backend/main.py` — runs `qaEngine.agentic_run()` against the committed `chroma_store/`
-  - Streaming endpoint (`/ask/stream`) for real-time token delivery via Server-Sent Events
-  - Optional Supabase integration for conversation history persistence and user authentication (JWT)
-- **Vector store**: ~62 MB persistent ChromaDB committed to the repository (3072-dim embeddings, no rebuild on deploy)
-- **Embedding + generation**: OpenAI API only — no local models, no PyTorch, under 200 MB runtime memory
-
-Safety controls (public-facing):
-- Max 1000 characters per question
-- Max 5 conversation history turns
-- Max 1000 output tokens
-- In-memory rate limit: 5 requests/min per IP
-
-### Models used
-
-| Purpose | Model | Why |
-|---|---|---|
-| Embedding | `text-embedding-3-large` (3072-dim) | Higher retrieval accuracy than 1536-dim small |
-| Generation | `gpt-4.1-mini` | Strong reasoning, fast, cost-effective |
-| Reranking | `gpt-4.1-nano` | Fastest/cheapest for batch scoring |
-| Query rewriting | `gpt-4.1-nano` | Fast reformulation and classification |
-
-### Deployment steps
-
-1. **Render**: Connect GitHub repo → auto-detects `render.yaml` → set `OPENAI_API_KEY` env var → deploy  
-2. **Vercel**: Connect GitHub repo → root directory: `frontend/` → framework: None → deploy  
-3. Update `frontend/app.js` with the Render backend URL  
-4. Both auto-deploy on `git push`
-
----
-
-## Local setup 
-
-This project is intended primarily as a **retrieval systems engineering case study**.  
-Running it locally is optional and aimed at inspection rather than end-user deployment.
-
-### Requirements
-- Python 3.10+
-- An OpenAI API key (`OPENAI_API_KEY`) in `.env`
-- The committed `chroma_store/` (included in the repository)
-
-### Run the FastAPI backend locally
+### Run the FastAPI backend
 
 ```bash
 pip install -r backend/requirements.txt
 uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-### Run the Streamlit UI locally (development)
+### Run the local Streamlit inspection UI
 
 ```bash
 pip install -r requirements.txt
 streamlit run chatbot/mskbot.py
 ```
 
-### (Optional) Rebuild corpus artifacts from scratch
+### (Optional) Run the static frontend locally
 
 ```bash
-# 1. Create chunks.parquet from HTML articles
-python Text_Extraction/textExtract.py
+python -m http.server 5500 --directory frontend
+```
 
-# 2. Rebuild chroma_store with OpenAI embeddings (text-embedding-3-large)
+### Rebuild the Chroma store from the mirrored corpus
+
+```bash
+python Text_Extraction/textExtract.py
 python scripts/rebuild_chroma_openai.py
 ```
 
-### (Optional) Run retrieval evaluation
+## Evaluation Commands
 
 ```bash
-python scripts/run_eval.py
+# 1) safest first step: validate artifact creation without API calls
+python scripts/run_eval_production.py --dry-run --max-cases 5
+
+# 2) retrieval run on the canonical gold set
+python scripts/run_eval_production.py --max-cases 10
+
+# 2b) bounded paid run (example cost guardrail)
+python scripts/run_eval_production.py --max-cases 10 --price-input-per-1k 0.001 --price-output-per-1k 0.004 --max-estimated-cost-usd 1.00
+
+# 3) citation / grounding checks
+python scripts/run_eval_production.py --dataset datasets/citation-tests.jsonl --max-cases 3
+
+# 4) red-flag safety checks
+python scripts/run_eval_production.py --dataset datasets/red-flag-cases.jsonl --max-cases 3
+
+# 5) triage answer-quality checks
+python scripts/run_eval_production.py --dataset datasets/triage-cases.jsonl --max-cases 3
 ```
 
-Evaluates the production pipeline against the gold set (`Eval/gold_set_merged_for_eval.jsonl`), measuring retrieval accuracy (NDCG, MRR, Hit@k).
+## Current Limitations
 
----
+- retrieval evidence is stronger than clinician-reviewed answer evidence
+- answer grounding and safety checks are now explicit, but still rule-based proxies rather than human adjudication
+- the checked-in reranker ablation is negative; the current evidence does not justify turning it on by default
+- this is a narrow-domain educational system, not a diagnosis engine or generalized medical assistant
 
-## Repository structure
+## Additional References
 
-```text
-msk_chat/
-├── backend/
-│   ├── main.py                   # FastAPI app (Render deployment) — streaming, auth, rate limiting
-│   └── requirements.txt          # Production-only dependencies
-│
-├── frontend/
-│   ├── index.html                # Chat UI — welcome screen with region chips and clinical topic cards
-│   ├── app.js                    # Frontend logic — streaming, auth, telemetry display
-│   ├── styles.css                # Dark theme styles
-│   └── vercel.json               # Vercel config
-│
-├── chatbot/
-│   └── mskbot.py                 # Streamlit UI (local development)
-│
-├── VectorDB/
-│   ├── qaEngine.py               # Core RAG engine — retrieval, hybrid search, reranking, context compression, generation
-│   ├── ChromaDB.py               # Vector store builder
-│   └── retrieval.py              # Retrieval utilities
-│
-├── Text_Extraction/
-│   └── textExtract.py            # HTML cleaning and token-aware chunking
-│
-├── Embedding/
-│   └── embedding.py              # Embedding generation (offline, legacy)
-│
-├── Eval/
-│   ├── gold_set_merged_for_eval.jsonl  # Gold set for retrieval evaluation
-│   ├── build_goldset.py          # Gold set construction
-│   ├── eval_gold.py              # Evaluation with topic-aware scoring
-│   └── model_comparison.py       # Cross-model comparison
-│
-├── scripts/
-│   ├── rebuild_chroma_openai.py  # Rebuild chroma_store with OpenAI text-embedding-3-large
-│   └── run_eval.py               # Production pipeline evaluation script
-│
-├── MSKArticlesINDEX/
-│   ├── chunks.parquet            # Chunk table (1,301 chunks with text and metadata)
-│   └── mskneurology.com/         # Offline HTML mirror (20 articles)
-│
-├── chroma_store/                 # Persistent ChromaDB store (committed, ~62 MB, 3072-dim)
-├── embeddings/                   # Embedding artifacts and model metadata
-│
-├── render.yaml                   # Render deployment blueprint
-├── requirements.txt              # Full local dependencies (includes Streamlit)
-└── README.md
-```
+- `docs/evaluation.md`
+- `docs/observability.md`
+- `docs/failure-modes.md`
+- `render.yaml`
+- `frontend/vercel.json`
