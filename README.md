@@ -2,6 +2,8 @@
 
 Domain-specific retrieval system for evidence-grounded musculoskeletal triage and biomechanics Q&A.
 
+https://msk-triage-chatbot.vercel.app/#
+
 This repository is best understood as a `retrieval engineering project`, not a generic chatbot demo. The chat UI exists to inspect the system, but the main artifact is the retrieval pipeline, the evaluation harness, and the evidence showing what works, what fails, and how the system is observed.
 
 > Educational triage support only. This project does not diagnose, replace a clinician, or present itself as a medical device.
