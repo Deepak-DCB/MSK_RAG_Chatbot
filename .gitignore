@@ -24,6 +24,7 @@ MSKArticlesINDEX/*
 
 # Logs / diagnostics
 *.jsonl
+!datasets/*.jsonl
 chat_events.jsonl
 resp_events.jsonl
 responses_stream_events_*.jsonl
@@ -47,6 +48,12 @@ runAll.py
 .DS_Store
 .vscode/
 .idea/
+
+# AI tooling (local only)
+CLAUDE.md
+AGENTS.md
+opencode.json
+.opencode/
 
 #paper
 paper.tex
