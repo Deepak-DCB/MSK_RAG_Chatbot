@@ -2,27 +2,10 @@
 
 const API_URL = "https://msk-rag-chatbot.onrender.com";
 
-// ── Supabase ─────────────────────────────────────────────────────────────────
-const SUPABASE_URL = "https://lmanobmmvrgpotioblih.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtYW5vYm1tdnJncG90aW9ibGloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MDE5OTgsImV4cCI6MjA4ODE3Nzk5OH0.gY-_zvAFsQd7Sfhq288Qvdn4uNa3tMQdr6BV4-IP5UI";
-
-let sb = null;
-try {
-    // UMD build may export createClient at different levels
-    const mod = window.supabase;
-    if (mod && mod.createClient) {
-        sb = mod.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    } else if (mod && mod.supabase && mod.supabase.createClient) {
-        sb = mod.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    } else if (mod && mod.default && mod.default.createClient) {
-        sb = mod.default.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    } else {
-        console.warn("Supabase: createClient not found on window.supabase", mod);
-    }
-} catch (e) {
-    console.warn("Supabase init failed:", e);
-}
-const sbClient = sb;
+// Guest-only v1 keeps the core triage product local/session-scoped while safety,
+// retrieval, and UX quality mature. Backend auth/history remains available later.
+const AUTH_ENABLED = false;
+const sbClient = null;
 
 // ── State ────────────────────────────────────────────────────────────────────
 let history = [];
@@ -31,12 +14,19 @@ let currentUser = null;
 let accessToken = null;
 let userScrolledUp = false;
 
+// Phase 1 parity config: explicit request metadata
+const REQUEST_CONFIG = {
+    use_reranker: false,
+    reranker_top_n: 10,
+};
+
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const chatArea = document.getElementById("chat-area");
 const textarea = document.getElementById("user-input");
 const sendBtn = document.getElementById("send-btn");
 const statusText = document.getElementById("status-text");
 const welcomeScreen = document.getElementById("welcome-screen");
+const mechanicsStudyToggle = document.getElementById("mechanics-study-toggle");
 
 // Auth modal elements
 const authModal = document.getElementById("auth-modal");
@@ -90,9 +80,10 @@ async function init() {
 
     checkHealth();
     bindChips();
+    setupGuestMode();
     bindAuth();
 
-    if (sbClient) {
+    if (AUTH_ENABLED && sbClient) {
         try {
             // Check existing session
             const { data: { session } } = await sbClient.auth.getSession();
@@ -118,6 +109,15 @@ async function init() {
     textarea.focus();
 }
 
+function setupGuestMode() {
+    hideAuthModal();
+    if (sidebarSigninBtn) sidebarSigninBtn.style.display = "none";
+    if (sidebarUser) sidebarUser.style.display = "none";
+    if (sidebarChats) {
+        sidebarChats.innerHTML = '<p class="sidebar-empty">Guest mode: chats stay in this browser session only.</p>';
+    }
+}
+
 // Run init immediately if DOM is ready, otherwise wait
 if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
@@ -127,14 +127,25 @@ if (document.readyState === "loading") {
 
 // ── Auth UI ──────────────────────────────────────────────────────────────────
 function bindAuth() {
+    // In guest-only mode, keep only navigation controls active.
+    if (!AUTH_ENABLED) {
+        sidebarToggle.addEventListener("click", () => {
+            sidebar.classList.toggle("collapsed");
+        });
+        newChatBtn.addEventListener("click", () => {
+            startNewChat();
+        });
+        return;
+    }
+
     // Toggle sign-in / sign-up
     authSwitchLink.addEventListener("click", (e) => {
         e.preventDefault();
         isSignUp = !isSignUp;
-        authTitle.textContent = isSignUp ? "Create account" : "Sign in";
-        authSubmit.textContent = isSignUp ? "Sign up" : "Sign in";
-        authSwitchText.textContent = isSignUp ? "Already have an account?" : "Don't have an account?";
-        authSwitchLink.textContent = isSignUp ? "Sign in" : "Sign up";
+        authTitle.textContent = "Guest mode";
+        authSubmit.textContent = "Unavailable";
+        authSwitchText.textContent = "Accounts are off for this guest-only prototype.";
+        authSwitchLink.textContent = "Guest mode";
         authError.textContent = "";
     });
 
@@ -175,7 +186,7 @@ function bindAuth() {
             authError.textContent = err.message;
         } finally {
             authSubmit.disabled = false;
-            authSubmit.textContent = isSignUp ? "Sign up" : "Sign in";
+            authSubmit.textContent = "Unavailable";
         }
     });
 
@@ -222,6 +233,10 @@ function startNewChat() {
     history = [];
     chatArea.querySelectorAll(".message").forEach(el => el.remove());
     welcomeScreen.style.display = "";
+    welcomeScreen.classList.remove("hidden");
+    if (window.innerWidth <= 768) {
+        sidebar.classList.add("collapsed");
+    }
     textarea.value = "";
     textarea.focus();
 }
@@ -242,7 +257,7 @@ function clearUser() {
     accessToken = null;
     sidebarUser.style.display = "none";
     sidebarSigninBtn.style.display = "";
-    sidebarChats.innerHTML = '<p class="sidebar-empty">Sign in to see history</p>';
+    sidebarChats.innerHTML = '<p class="sidebar-empty">Guest mode: history is not saved.</p>';
 }
 
 function showAuthModal() {
@@ -260,6 +275,10 @@ function hideAuthModal() {
 
 // ── History ──────────────────────────────────────────────────────────────────
 async function loadSidebarHistory() {
+    if (!AUTH_ENABLED) {
+        setupGuestMode();
+        return;
+    }
     if (!accessToken) return;
 
     sidebarChats.innerHTML = '<p class="sidebar-empty">Loading…</p>';
@@ -270,7 +289,23 @@ async function loadSidebarHistory() {
         });
 
         if (!res.ok) {
-            sidebarChats.innerHTML = '<p class="sidebar-empty">Could not load history</p>';
+            let detail = "";
+            try {
+                const err = await res.json();
+                detail = (err && err.detail) ? String(err.detail) : "";
+            } catch {
+                detail = "";
+            }
+
+            if (res.status === 401) {
+                sidebarChats.innerHTML = '<p class="sidebar-empty">Session unavailable. Continue in guest mode.</p>';
+            } else if (res.status === 503) {
+                sidebarChats.innerHTML = '<p class="sidebar-empty">History storage is not configured.</p>';
+            } else if (detail) {
+                sidebarChats.innerHTML = `<p class="sidebar-empty">${escapeHtml(detail)}</p>`;
+            } else {
+                sidebarChats.innerHTML = '<p class="sidebar-empty">Could not load history</p>';
+            }
             return;
         }
 
@@ -357,13 +392,18 @@ async function sendQuestion() {
     const { bubble } = createAssistantBubble();
     bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
+    if (mechanicsStudyToggle && mechanicsStudyToggle.checked) {
+        await sendMechanicsStudyQuestion(question, bubble);
+        return;
+    }
+
     let fullText = "";
     let streamMeta = null;
     const streamStart = performance.now();
 
     // Build headers — include JWT if logged in
     const headers = { "Content-Type": "application/json" };
-    if (accessToken) {
+    if (AUTH_ENABLED && accessToken) {
         headers["Authorization"] = `Bearer ${accessToken}`;
     }
 
@@ -374,6 +414,7 @@ async function sendQuestion() {
             body: JSON.stringify({
                 question,
                 history: history.slice(-10),
+                config: REQUEST_CONFIG,
             }),
         });
 
@@ -419,28 +460,47 @@ async function sendQuestion() {
         }
 
         const endToEnd = ((performance.now() - streamStart) / 1000).toFixed(2);
+        const assistantText = fullText.trim();
+        const hasStreamError = Boolean(streamMeta && streamMeta.error);
+        const isComplete = Boolean(streamMeta && streamMeta.complete !== false);
+        const requestIdNote = streamMeta && streamMeta.request_id
+            ? `<br><small>request_id: ${escapeHtml(streamMeta.request_id)}</small>`
+            : "";
 
         const typingEl = bubble.querySelector(".typing-indicator");
         if (typingEl) {
-            if (fullText) {
+            if (!isComplete) {
+                bubble.innerHTML = `<p>⚠️ ${escapeHtml((streamMeta && streamMeta.error) || "Response interrupted before completion.")}${requestIdNote}</p>`;
+            } else if (assistantText) {
                 bubble.innerHTML = renderMarkdown(fullText);
-            } else if (streamMeta && streamMeta.error) {
-                bubble.innerHTML = `<p>⚠️ ${escapeHtml(streamMeta.error)}</p>`;
+            } else if (hasStreamError) {
+                bubble.innerHTML = `<p>⚠️ ${escapeHtml(streamMeta.error)}${requestIdNote}</p>`;
             } else {
                 bubble.innerHTML = `<p>⚠️ No response received.</p>`;
             }
         }
 
-        if (streamMeta && streamMeta.citations && streamMeta.citations.length > 0) {
+        if (isComplete && !hasStreamError && streamMeta && streamMeta.citations && streamMeta.citations.length > 0) {
             appendCitations(bubble, streamMeta.citations);
         }
 
-        if (streamMeta) {
-            appendTelemetry(bubble, streamMeta, endToEnd);
+        if (isComplete && !hasStreamError && streamMeta && Array.isArray(streamMeta.evidence_spans) && streamMeta.evidence_spans.length > 0) {
+            appendEvidenceUsed(bubble, streamMeta.evidence_spans);
         }
 
-        history.push({ role: "user", content: question });
-        history.push({ role: "assistant", content: fullText });
+        if (isComplete && !hasStreamError && streamMeta && streamMeta.graph_available) {
+            appendMechanismGraph(bubble, streamMeta);
+        }
+
+        if (isComplete && !hasStreamError && streamMeta) {
+            appendTelemetry(bubble, streamMeta, endToEnd);
+            appendFeedback(bubble);
+        }
+
+        if (isComplete && !hasStreamError && assistantText) {
+            history.push({ role: "user", content: question });
+            history.push({ role: "assistant", content: fullText });
+        }
 
     } catch (err) {
         bubble.innerHTML = `<p>⚠️ Network error: ${escapeHtml(err.message)}</p>`;
@@ -500,15 +560,197 @@ function appendCitations(bubble, citations) {
     const existing = bubble.querySelector(".citations");
     if (existing) existing.remove();
 
-    const citDiv = document.createElement("div");
-    citDiv.className = "citations";
+    const citDiv = document.createElement("details");
+    citDiv.className = "citations source-details";
+
+    const summary = document.createElement("summary");
+    summary.textContent = `Sources (${citations.length})`;
+    citDiv.appendChild(summary);
+
+    const list = document.createElement("div");
+    list.className = "source-list";
     citations.forEach(c => {
-        const tag = document.createElement("span");
-        tag.className = "citation-tag";
-        tag.textContent = c;
-        citDiv.appendChild(tag);
+        const item = document.createElement("div");
+        item.className = "source-item";
+        const parts = String(c).split(" — ");
+        const source = document.createElement("span");
+        source.className = "source-path";
+        source.textContent = parts[0] || c;
+        item.appendChild(source);
+        if (parts[1]) {
+            const section = document.createElement("span");
+            section.className = "source-section";
+            section.textContent = parts.slice(1).join(" — ");
+            item.appendChild(section);
+        }
+        list.appendChild(item);
     });
+    citDiv.appendChild(list);
     bubble.appendChild(citDiv);
+}
+
+async function sendMechanicsStudyQuestion(question, bubble) {
+    const studyStart = performance.now();
+    try {
+        const res = await fetch(`${API_URL}/study/mechanics`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question, mechanics_max_items: 8 }),
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            bubble.innerHTML = `<p>⚠️ ${escapeHtml(err.detail || "Something went wrong.")}</p>`;
+            return;
+        }
+
+        const data = await res.json();
+        bubble.innerHTML = renderMarkdown(data.answer || "No mechanics study answer received.");
+        appendMechanicsMap(bubble, data);
+        appendFeedback(bubble);
+        history.push({ role: "user", content: question });
+        history.push({ role: "assistant", content: data.answer || "" });
+
+        const endToEnd = ((performance.now() - studyStart) / 1000).toFixed(2);
+        const panel = document.createElement("div");
+        panel.className = "mechanics-runtime-note";
+        panel.textContent = `Mechanics study mode · Total ${endToEnd}s`;
+        bubble.appendChild(panel);
+    } catch (err) {
+        bubble.innerHTML = `<p>⚠️ Network error: ${escapeHtml(err.message)}</p>`;
+    } finally {
+        isLoading = false;
+        sendBtn.disabled = false;
+        textarea.focus();
+    }
+}
+
+function appendEvidenceUsed(bubble, spans) {
+    const existing = bubble.querySelector(".evidence-used");
+    if (existing) existing.remove();
+
+    const details = document.createElement("details");
+    details.className = "citations source-details evidence-used";
+
+    const summary = document.createElement("summary");
+    summary.textContent = `Evidence used (${spans.length})`;
+    details.appendChild(summary);
+
+    const list = document.createElement("div");
+    list.className = "source-list";
+    spans.slice(0, 8).forEach(span => {
+        const item = document.createElement("div");
+        item.className = "source-item";
+
+        const source = document.createElement("span");
+        source.className = "source-path";
+        source.textContent = span.title || span.source_relpath || "Evidence span";
+        item.appendChild(source);
+
+        const section = document.createElement("span");
+        section.className = "source-section";
+        section.textContent = span.section_name || span.source_relpath || "";
+        item.appendChild(section);
+
+        const text = document.createElement("span");
+        text.className = "source-section";
+        const rawText = String(span.text || "").trim();
+        text.textContent = rawText.length > 260 ? `${rawText.slice(0, 260)}...` : rawText;
+        item.appendChild(text);
+
+        list.appendChild(item);
+    });
+    details.appendChild(list);
+    bubble.appendChild(details);
+}
+
+function appendMechanismGraph(bubble, meta) {
+    const existing = bubble.querySelector(".mechanism-graph");
+    if (existing) existing.remove();
+
+    const nodes = Array.isArray(meta.graph_nodes) ? meta.graph_nodes : [];
+    const paths = Array.isArray(meta.graph_paths) ? meta.graph_paths : [];
+    const edges = Array.isArray(meta.graph_edges) ? meta.graph_edges : [];
+    const spanCount = Array.isArray(meta.graph_supporting_spans) ? meta.graph_supporting_spans.length : 0;
+    if (!nodes.length && !paths.length && !edges.length) return;
+
+    const details = document.createElement("details");
+    details.className = "citations source-details mechanism-graph";
+
+    const summary = document.createElement("summary");
+    summary.textContent = `Mechanism graph (${paths.length || edges.length})`;
+    details.appendChild(summary);
+
+    const list = document.createElement("div");
+    list.className = "source-list";
+
+    const conceptItem = document.createElement("div");
+    conceptItem.className = "source-item";
+    const concepts = nodes.slice(0, 8).map(n => n.canonical_name || n.node_id).filter(Boolean).join(", ");
+    conceptItem.innerHTML = `<span class="source-path">Matched concepts</span><span class="source-section">${escapeHtml(concepts || "None")}</span>`;
+    list.appendChild(conceptItem);
+
+    paths.slice(0, 5).forEach(path => {
+        const item = document.createElement("div");
+        item.className = "source-item";
+        const weakest = path.weakest_support_level ? `Weakest support: ${path.weakest_support_level}` : "Support not labeled";
+        item.innerHTML = `<span class="source-path">${escapeHtml(path.path_text || path.path_id || "Mechanism path")}</span><span class="source-section">${escapeHtml(weakest)}</span>`;
+        list.appendChild(item);
+    });
+
+    if (!paths.length) {
+        edges.slice(0, 5).forEach(edge => {
+            const item = document.createElement("div");
+            item.className = "source-item";
+            const label = `${edge.source || edge.source_node_id} ${edge.relation_type || "related_to"} ${edge.target || edge.target_node_id}`;
+            item.innerHTML = `<span class="source-path">${escapeHtml(label)}</span><span class="source-section">Support: ${escapeHtml(edge.support_level || "unknown")}</span>`;
+            list.appendChild(item);
+        });
+    }
+
+    const stats = document.createElement("div");
+    stats.className = "source-item";
+    stats.innerHTML = `<span class="source-path">Graph support</span><span class="source-section">Evidence spans: ${spanCount} · Graph tokens: ${meta.graph_context_token_estimate || 0}</span>`;
+    list.appendChild(stats);
+
+    details.appendChild(list);
+    bubble.appendChild(details);
+}
+
+function appendMechanicsMap(bubble, meta) {
+    const existing = bubble.querySelector(".mechanics-map");
+    if (existing) existing.remove();
+
+    const nerves = Array.isArray(meta.mechanics_nerves) ? meta.mechanics_nerves : [];
+    const sites = Array.isArray(meta.mechanics_entrapment_sites) ? meta.mechanics_entrapment_sites : [];
+    const pairs = Array.isArray(meta.mechanics_muscle_pairs) ? meta.mechanics_muscle_pairs : [];
+    const chains = Array.isArray(meta.mechanics_mechanism_chains) ? meta.mechanics_mechanism_chains : [];
+    if (!nerves.length && !sites.length && !pairs.length && !chains.length) return;
+
+    const details = document.createElement("details");
+    details.className = "citations source-details mechanics-map";
+
+    const summary = document.createElement("summary");
+    summary.textContent = `Mechanics map (${nerves.length + sites.length + pairs.length + chains.length})`;
+    details.appendChild(summary);
+
+    const list = document.createElement("div");
+    list.className = "source-list";
+
+    function addRecord(group, label, support, detail) {
+        const item = document.createElement("div");
+        item.className = "source-item";
+        item.innerHTML = `<span class="source-path">${escapeHtml(group)}: ${escapeHtml(label)}</span><span class="source-section">Support: ${escapeHtml(support || "unknown")} · ${escapeHtml(detail || "")}</span>`;
+        list.appendChild(item);
+    }
+
+    nerves.slice(0, 5).forEach(record => addRecord("Nerve", record.name || record.nerve_id, record.support_level, record.course_summary));
+    sites.slice(0, 5).forEach(record => addRecord("Site", record.site_name || record.site_id, record.support_level, record.mechanical_trigger));
+    pairs.slice(0, 5).forEach(record => addRecord("Muscle pair", (record.muscles || []).join(", ") || record.pair_id, record.support_level, record.mechanical_role));
+    chains.slice(0, 5).forEach(record => addRecord("Chain", record.chain_id, record.support_level, record.weakest_step));
+
+    details.appendChild(list);
+    bubble.appendChild(details);
 }
 
 // ── Telemetry ────────────────────────────────────────────────────────────────
@@ -516,11 +758,12 @@ function appendTelemetry(bubble, meta, endToEnd) {
     const rt = (meta.retrieval_time || 0).toFixed(2);
     const gt = (meta.generation_time || 0).toFixed(2);
     const conf = (meta.retrieval_confidence || 0);
+    const rrMode = meta.reranker_mode || (meta.use_reranker ? "per_source" : "off");
     const confClass = conf >= 0.5 ? "confidence-high" : conf >= 0.3 ? "confidence-mid" : "confidence-low";
 
     const toggleBtn = document.createElement("div");
     toggleBtn.className = "telemetry-toggle";
-    toggleBtn.textContent = "📊 Stats";
+    toggleBtn.textContent = "Why this answer?";
     bubble.appendChild(toggleBtn);
 
     const panel = document.createElement("div");
@@ -530,14 +773,23 @@ function appendTelemetry(bubble, meta, endToEnd) {
         <span class="stat-badge">Retrieval ${rt}s</span>
         <span class="stat-badge">LLM ${gt}s</span>
         <span class="stat-badge">Total ${endToEnd}s</span>
+        <span class="stat-badge">Reranker ${escapeHtml(rrMode)}</span>
+        <span class="stat-badge">Context ${escapeHtml(meta.context_strategy || "chunk_pack")}</span>
+        <span class="stat-badge">Graph ${escapeHtml(meta.graph_context_strategy || "off")}</span>
         <span class="stat-badge">Prompt ${meta.prompt_tokens || 0}</span>
         <span class="stat-badge">Output ${meta.output_tokens || 0}</span>
         <span class="stat-badge ${confClass}">Confidence ${conf.toFixed(2)}</span>
     </div>`;
 
-    if (meta.category || meta.refined_query) {
+    if (meta.category || meta.refined_query || meta.triage_level || meta.safety_gate_triggered) {
         html += '<div class="telemetry-detail">';
         if (meta.category) html += `<strong>Category:</strong> ${escapeHtml(meta.category_label || meta.category)}<br>`;
+        if (meta.triage_level) html += `<strong>Triage:</strong> ${escapeHtml(meta.triage_level)}<br>`;
+        if (meta.safety_gate_triggered) {
+            const reasons = Array.isArray(meta.safety_gate_reasons) ? meta.safety_gate_reasons.join(", ") : "red_flag";
+            html += `<strong>Safety gate:</strong> ${escapeHtml(reasons)}<br>`;
+        }
+        if (meta.scope_issue) html += `<strong>Scope boundary:</strong> ${escapeHtml(meta.scope_issue)}<br>`;
         if (meta.refined_query) html += `<strong>Query:</strong> ${escapeHtml(meta.refined_query)}`;
         html += "</div>";
     }
@@ -549,6 +801,34 @@ function appendTelemetry(bubble, meta, endToEnd) {
         panel.classList.toggle("open");
         chatArea.scrollTop = chatArea.scrollHeight;
     });
+}
+
+function appendFeedback(bubble) {
+    const existing = bubble.querySelector(".feedback-row");
+    if (existing) existing.remove();
+
+    const wrap = document.createElement("div");
+    wrap.className = "feedback-row";
+
+    const label = document.createElement("span");
+    label.className = "feedback-label";
+    label.textContent = "Feedback:";
+    wrap.appendChild(label);
+
+    ["Helpful", "Unclear", "Felt unsafe", "Wrong source", "Not grounded"].forEach(text => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "feedback-btn";
+        btn.textContent = text;
+        btn.addEventListener("click", () => {
+            wrap.querySelectorAll(".feedback-btn").forEach(el => el.classList.remove("selected"));
+            btn.classList.add("selected");
+            console.info("Local feedback selected:", text);
+        });
+        wrap.appendChild(btn);
+    });
+
+    bubble.appendChild(wrap);
 }
 
 // ── Markdown ─────────────────────────────────────────────────────────────────
@@ -575,6 +855,15 @@ function escapeHtml(str) {
 }
 
 // ── Event bindings ───────────────────────────────────────────────────────────
+const sidebarScrim = document.getElementById("sidebar-scrim");
+const sidebarCollapse = document.getElementById("sidebar-collapse");
+if (sidebarScrim) {
+    sidebarScrim.addEventListener("click", () => sidebar.classList.add("collapsed"));
+}
+if (sidebarCollapse) {
+    sidebarCollapse.addEventListener("click", () => sidebar.classList.add("collapsed"));
+}
+
 sendBtn.addEventListener("click", sendQuestion);
 
 textarea.addEventListener("keydown", (e) => {

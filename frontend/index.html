@@ -6,20 +6,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- SEO -->
-  <title>MSK Triage Chatbot — Musculoskeletal Neurology Assistant</title>
+  <title>MSK Triage Assistant — Evidence-Grounded Musculoskeletal Education</title>
   <meta name="description"
-    content="Evidence-grounded RAG chatbot for musculoskeletal neurology. Describe your symptoms for biomechanical analysis grounded in the MSK Neurology dataset." />
+    content="Evidence-grounded assistant for musculoskeletal neurology education. Describe your symptoms for biomechanical analysis grounded in the MSK Neurology dataset. Educational — not a diagnosis." />
+  <meta name="theme-color" content="#ffffff" />
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-
-  <!-- Supabase JS -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
 
   <!-- Styles -->
-  <link rel="stylesheet" href="styles.css?v=7" />
+  <link rel="stylesheet" href="styles.css?v=9" />
 </head>
 
 <body>
@@ -27,10 +26,10 @@
   <!-- Auth Modal -->
   <div class="modal-overlay hidden" id="auth-modal">
     <div class="modal">
-      <h2 id="auth-title">Sign in</h2>
-      <p class="modal-sub">Save your conversations and track your history</p>
+      <h2 id="auth-title">Guest mode</h2>
+      <p class="modal-sub">Accounts and saved history are disabled while the core product matures.</p>
 
-      <button class="google-btn" id="google-btn">
+      <button class="google-btn" id="google-btn" style="display:none">
         <svg viewBox="0 0 24 24" width="18" height="18">
           <path
             d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
@@ -45,22 +44,22 @@
             d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
             fill="#EA4335" />
         </svg>
-        Continue with Google
+        Accounts disabled
       </button>
 
-      <div class="divider"><span>or</span></div>
+      <div class="divider" style="display:none"><span>or</span></div>
 
-      <form id="auth-form">
+      <form id="auth-form" style="display:none">
         <input type="email" id="auth-email" placeholder="Email address" required />
         <input type="password" id="auth-password" placeholder="Password" required minlength="6" />
-        <button type="submit" class="auth-submit" id="auth-submit">Sign in</button>
+        <button type="submit" class="auth-submit" id="auth-submit">Unavailable</button>
       </form>
 
       <p class="auth-error" id="auth-error"></p>
 
-      <p class="auth-switch">
-        <span id="auth-switch-text">Don't have an account?</span>
-        <a href="#" id="auth-switch-link">Sign up</a>
+      <p class="auth-switch" style="display:none">
+        <span id="auth-switch-text">Accounts are off for this guest-only prototype.</span>
+        <a href="#" id="auth-switch-link">Guest mode</a>
       </p>
 
       <button class="skip-btn" id="skip-btn">Continue as guest</button>
@@ -69,18 +68,40 @@
 
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v18M8 7h8M8 12h8M8 17h8" />
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">MSK Assist</span>
+        <span class="brand-tag">Educational triage</span>
+      </div>
+      <button class="sidebar-collapse" id="sidebar-collapse" aria-label="Hide sidebar" title="Hide sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+      </button>
+    </div>
+
     <div class="sidebar-top">
       <button class="new-chat-btn" id="new-chat-btn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 5v14M5 12h14" />
         </svg>
-        New chat
+        New conversation
       </button>
     </div>
+
+    <span class="sidebar-section-label">Recent</span>
     <div class="sidebar-chats" id="sidebar-chats">
       <p class="sidebar-empty" id="sidebar-empty">No recent chats</p>
     </div>
+
     <div class="sidebar-bottom" id="sidebar-bottom">
       <div class="sidebar-user" id="sidebar-user" style="display:none">
         <span class="sidebar-avatar" id="sidebar-avatar">U</span>
@@ -92,7 +113,15 @@
           </svg>
         </button>
       </div>
-      <button class="sidebar-signin" id="sidebar-signin-btn">Sign in to save history</button>
+      <button class="sidebar-signin" id="sidebar-signin-btn">Guest mode: history not saved</button>
+      <div class="sidebar-guest-note">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="11" width="18" height="11" rx="2" />
+          <path d="M7 11V7a5 5 0 0110 0v4" />
+        </svg>
+        <span>Private guest session — nothing is stored by this app.</span>
+      </div>
     </div>
   </aside>
 
@@ -104,18 +133,27 @@
     </svg>
   </button>
 
+  <!-- Mobile scrim (closes sidebar) -->
+  <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
   <div class="app">
 
     <!-- Header -->
     <header class="header">
       <div class="header-left">
-        <div class="brand-mark">MSK</div>
-        <div class="header-text">
-          <h1>Triage Assistant</h1>
-          <p class="header-sub">Grounded in the MSK Neurology evidence base</p>
+        <div class="header-title">
+          <h1>MSK Triage Assistant</h1>
+          <span class="header-badge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            Educational · Not a diagnosis
+          </span>
         </div>
       </div>
       <div class="header-right">
+        <span class="evidence-pill">Grounded in the MSK Neurology evidence base</span>
         <div class="connection-badge" id="connection-badge">
           <span class="conn-dot"></span>
           <span id="status-text">Connecting…</span>
@@ -128,14 +166,39 @@
 
       <!-- Welcome screen -->
       <div class="welcome" id="welcome-screen">
-        <div class="welcome-heading">
-          <h2>What's bothering you?</h2>
-          <p>Describe your symptoms and I'll analyze them using biomechanical and neurological evidence. Be specific
-            about location, sensation, and timing for the best results.</p>
+        <div class="hero">
+          <span class="hero-eyebrow">Evidence-grounded musculoskeletal education</span>
+          <h2>Understand what might be driving your symptoms</h2>
+          <p class="hero-sub">Describe where it hurts, what it feels like, and when it happens. Every answer is
+            grounded in the MSK Neurology evidence base and cites its sources — built for education, not diagnosis.</p>
+          <div class="hero-trust">
+            <span class="trust-item">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+              Cites every source
+            </span>
+            <span class="trust-item">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              Built-in safety checks
+            </span>
+            <span class="trust-item">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0110 0v4" />
+              </svg>
+              Private guest session
+            </span>
+          </div>
         </div>
 
         <div class="region-bar">
-          <span class="region-label">Quick start — tap a region:</span>
+          <span class="region-label">Start with a body region</span>
           <div class="region-chips">
             <button class="region-chip" data-query="I have neck pain">Neck</button>
             <button class="region-chip" data-query="I have shoulder pain">Shoulder</button>
@@ -154,7 +217,10 @@
         </div>
 
         <div class="topics-library">
-          <span class="topics-heading">Clinical topics</span>
+          <div class="topics-head">
+            <span class="topics-heading">Explore clinical topics</span>
+            <span class="topics-sub">Curated questions the evidence base covers in depth</span>
+          </div>
 
           <!-- Biomechanics -->
           <div class="topic-category">
@@ -393,36 +459,39 @@
 
     <!-- Input Area -->
     <div class="input-area">
-      <div class="input-row">
+      <div class="composer">
         <textarea id="user-input" placeholder="Describe where it hurts, what it feels like, and when it happens…"
           rows="1"></textarea>
-        <button class="send-btn" id="send-btn" aria-label="Send">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
-        </button>
+        <div class="composer-bar">
+          <label class="mode-toggle" title="Article interpretation only, not diagnosis or treatment planning.">
+            <input type="checkbox" id="mechanics-study-toggle" />
+            <span class="mode-name">Mechanics Study</span>
+          </label>
+          <span class="mode-hint">Article interpretation only, not diagnosis or treatment planning.</span>
+          <button class="send-btn" id="send-btn" aria-label="Send">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
+      <p class="safety-note">
+        Guest mode: chats are not saved by this app. For new/worsening weakness, bowel or bladder changes,
+        major trauma, fever with feeling very unwell, unexplained weight loss, or severe chest pain/trouble breathing,
+        seek urgent in-person care.
+      </p>
     </div>
 
     <!-- Footer -->
     <div class="footer-bar">
-      <span>Evidence-grounded · Not medical advice</span>
-      <span>RAG · OpenAI</span>
+      <span>Educational triage support · Not medical advice</span>
+      <span>Guest-only local product prototype</span>
     </div>
 
   </div>
 
-  <script>
-    // Catch any JS errors and display them visibly for debugging
-    window.onerror = function (msg, url, line) {
-      var d = document.createElement('div');
-      d.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:red;color:white;padding:8px;font-size:12px;z-index:9999';
-      d.textContent = 'JS Error: ' + msg + ' (line ' + line + ')';
-      document.body.appendChild(d);
-    };
-  </script>
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=7"></script>
 </body>
 
 </html>
