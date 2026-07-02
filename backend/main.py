@@ -36,6 +36,7 @@ app = FastAPI(
 ALLOWED_ORIGINS = [
     "https://msk-rag-chatbot.vercel.app",
     "https://msk-triage-chatbot.vercel.app",
+    "https://mskchat.vercel.app",
     "http://localhost:3000",
     "http://localhost:5500",
     "http://127.0.0.1:5500",
