@@ -54,7 +54,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PERSIST_DIR = str(PROJECT_ROOT / "chroma_store")
 COLLECTION_NAME = "msk_chunks"
 
-OPENAI_MODEL = "gpt-4.1-mini"
+OPENAI_MODEL = "gpt-5.4-mini"
 RERANKER_MODEL = "gpt-4.1-nano"   # fast/cheap model for reranking only
 RERANKER_MAX_CANDIDATES = 15      # limit candidates sent to reranker
 RERANKER_EXCERPT_TOKENS = 120     # truncate each excerpt for scoring
@@ -1284,6 +1284,9 @@ def ask_openai_llm(prompt: str, model: str, num_predict: int, on_token=None, his
 
     parts = []
 
+    # GPT-5 family: pin reasoning effort so the output-token budget goes to the answer
+    extra_args = {"reasoning_effort": "none"} if model.startswith("gpt-5") else {}
+
     # ---------- 1) Try streaming first ----------
     try:
         stream = client.chat.completions.create(
@@ -1291,6 +1294,7 @@ def ask_openai_llm(prompt: str, model: str, num_predict: int, on_token=None, his
             messages=messages,
             stream=True,
             max_completion_tokens=num_predict,
+            **extra_args,
         )
 
         for chunk in stream:
@@ -1326,6 +1330,7 @@ def ask_openai_llm(prompt: str, model: str, num_predict: int, on_token=None, his
             messages=messages,
             stream=False,
             max_completion_tokens=num_predict,
+            **extra_args,
         )
         content = resp.choices[0].message.content or ""
         answer = content.strip()
