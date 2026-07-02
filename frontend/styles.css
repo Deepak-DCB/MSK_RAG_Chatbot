@@ -130,6 +130,17 @@ button {
     padding: 1rem 1rem 0.85rem;
 }
 
+.brand-link {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex: 1;
+    min-width: 0;
+    text-decoration: none;
+    color: inherit;
+    border-radius: var(--r-sm);
+}
+
 .brand-mark {
     width: 34px;
     height: 34px;

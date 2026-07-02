@@ -6,9 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- SEO -->
-  <title>MSK Triage Assistant — Evidence-Grounded Musculoskeletal Education</title>
+  <title>MSK Assist — Evidence-Grounded Musculoskeletal Education</title>
   <meta name="description"
-    content="Evidence-grounded assistant for musculoskeletal neurology education. Describe your symptoms for biomechanical analysis grounded in the MSK Neurology dataset. Educational — not a diagnosis." />
+    content="An educational assistant for musculoskeletal symptoms that answers only from a curated MSK neurology evidence base and cites every source. Not a diagnosis tool." />
   <meta name="theme-color" content="#0f1519" />
 
   <!-- Fonts -->
@@ -18,480 +18,289 @@
     rel="stylesheet" />
 
   <!-- Styles -->
-  <link rel="stylesheet" href="styles.css?v=10" />
+  <link rel="stylesheet" href="landing.css?v=1" />
 </head>
 
 <body>
 
-  <!-- Auth Modal -->
-  <div class="modal-overlay hidden" id="auth-modal">
-    <div class="modal">
-      <h2 id="auth-title">Guest mode</h2>
-      <p class="modal-sub">Accounts and saved history are disabled while the core product matures.</p>
-
-      <button class="google-btn" id="google-btn" style="display:none">
-        <svg viewBox="0 0 24 24" width="18" height="18">
-          <path
-            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
-            fill="#4285F4" />
-          <path
-            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-            fill="#34A853" />
-          <path
-            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-            fill="#FBBC05" />
-          <path
-            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-            fill="#EA4335" />
-        </svg>
-        Accounts disabled
-      </button>
-
-      <div class="divider" style="display:none"><span>or</span></div>
-
-      <form id="auth-form" style="display:none">
-        <input type="email" id="auth-email" placeholder="Email address" required />
-        <input type="password" id="auth-password" placeholder="Password" required minlength="6" />
-        <button type="submit" class="auth-submit" id="auth-submit">Unavailable</button>
-      </form>
-
-      <p class="auth-error" id="auth-error"></p>
-
-      <p class="auth-switch" style="display:none">
-        <span id="auth-switch-text">Accounts are off for this guest-only prototype.</span>
-        <a href="#" id="auth-switch-link">Guest mode</a>
-      </p>
-
-      <button class="skip-btn" id="skip-btn">Continue as guest</button>
-    </div>
-  </div>
-
-  <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-brand">
-      <div class="brand-mark" aria-hidden="true">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 3v18M8 7h8M8 12h8M8 17h8" />
-        </svg>
-      </div>
-      <div class="brand-text">
-        <span class="brand-name">MSK Assist</span>
-        <span class="brand-tag">Educational triage</span>
-      </div>
-      <button class="sidebar-collapse" id="sidebar-collapse" aria-label="Hide sidebar" title="Hide sidebar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
-      </button>
-    </div>
-
-    <div class="sidebar-top">
-      <button class="new-chat-btn" id="new-chat-btn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-        New conversation
-      </button>
-    </div>
-
-    <span class="sidebar-section-label">Recent</span>
-    <div class="sidebar-chats" id="sidebar-chats">
-      <p class="sidebar-empty" id="sidebar-empty">No recent chats</p>
-    </div>
-
-    <div class="sidebar-bottom" id="sidebar-bottom">
-      <div class="sidebar-user" id="sidebar-user" style="display:none">
-        <span class="sidebar-avatar" id="sidebar-avatar">U</span>
-        <span class="sidebar-email" id="sidebar-email">User</span>
-        <button class="sidebar-logout" id="logout-btn" title="Sign out">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+  <!-- Nav -->
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
             stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+            <path d="M12 3v18M8 7h8M8 12h8M8 17h8" />
           </svg>
-        </button>
-      </div>
-      <button class="sidebar-signin" id="sidebar-signin-btn">Guest mode: history not saved</button>
-      <div class="sidebar-guest-note">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="11" width="18" height="11" rx="2" />
-          <path d="M7 11V7a5 5 0 0110 0v4" />
-        </svg>
-        <span>Private guest session — nothing is stored by this app.</span>
-      </div>
+        </span>
+        <span class="nav-brand-text">MSK Assist</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#how-it-works">How it works</a>
+        <a href="#using-it">Using it well</a>
+        <a href="#safety">Safety</a>
+      </nav>
+      <a class="btn btn-primary btn-sm" href="chat.html">Start chatting</a>
     </div>
-  </aside>
+  </header>
 
-  <!-- Sidebar toggle (mobile + collapsed) -->
-  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-      stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 12h18M3 6h18M3 18h18" />
-    </svg>
-  </button>
+  <main>
 
-  <!-- Mobile scrim (closes sidebar) -->
-  <div class="sidebar-scrim" id="sidebar-scrim"></div>
+    <!-- Hero -->
+    <section class="hero">
+      <span class="eyebrow">Evidence-grounded musculoskeletal education</span>
+      <h1>Understand what might be<br />driving your symptoms</h1>
+      <p class="hero-sub">
+        Describe where it hurts, what it feels like, and when it happens. MSK Assist answers only from a curated
+        musculoskeletal neurology evidence base — and shows you every source it used. Built for education, not
+        diagnosis.
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary btn-lg" href="chat.html">
+          Start chatting
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14M12 5l7 7-7 7" />
+          </svg>
+        </a>
+        <a class="btn btn-ghost btn-lg" href="#how-it-works">See how it works</a>
+      </div>
+      <div class="hero-stats">
+        <span class="stat-pill"><span class="live-dot"></span><span id="stat-sources">1,300+ evidence
+            passages</span></span>
+        <span class="stat-pill">Cites every source</span>
+        <span class="stat-pill">Guest-only · nothing stored</span>
+      </div>
+    </section>
 
-  <div class="app">
-
-    <!-- Header -->
-    <header class="header">
-      <div class="header-left">
-        <div class="header-title">
-          <h1>MSK Triage Assistant</h1>
-          <span class="header-badge">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <!-- What is this -->
+    <section class="section">
+      <div class="section-head">
+        <h2>An assistant that shows its work</h2>
+        <p>Most AI health tools ask you to trust a black box. This one is built the other way around.</p>
+      </div>
+      <div class="card-grid three">
+        <div class="info-card">
+          <span class="info-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+            </svg>
+          </span>
+          <h3>Grounded in real evidence</h3>
+          <p>Answers are composed only from a curated corpus of musculoskeletal neurology articles — not the open
+            internet, and not the model's imagination.</p>
+        </div>
+        <div class="info-card">
+          <span class="info-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+          </span>
+          <h3>Sources you can check</h3>
+          <p>Every answer includes the exact articles and evidence passages used, plus a “Why this answer?” panel with
+            retrieval confidence and timing.</p>
+        </div>
+        <div class="info-card">
+          <span class="info-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
-            Educational · Not a diagnosis
           </span>
+          <h3>Educational, not diagnostic</h3>
+          <p>It explains biomechanical patterns and mechanisms behind symptoms. It never diagnoses, prescribes, or
+            plans treatment — and it says so.</p>
         </div>
       </div>
-      <div class="header-right">
-        <span class="evidence-pill">Grounded in the MSK Neurology evidence base</span>
-        <div class="connection-badge" id="connection-badge">
-          <span class="conn-dot"></span>
-          <span id="status-text">Connecting…</span>
+    </section>
+
+    <!-- How it works -->
+    <section class="section" id="how-it-works">
+      <div class="section-head">
+        <h2>How it works</h2>
+        <p>Every message goes through the same transparent pipeline.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <span class="step-num">1</span>
+          <h3>Describe your symptoms</h3>
+          <p>Location, sensation, and timing — in your own words. The more specific, the better the retrieval.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <h3>Safety checks run first</h3>
+          <p>Deterministic red-flag screening happens before any AI generation. Urgent patterns are escalated to
+            in-person care immediately.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <h3>The evidence base is searched</h3>
+          <p>Hybrid semantic and keyword retrieval finds the most relevant passages across 1,300+ evidence chunks from
+            the MSK Neurology corpus.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">4</span>
+          <h3>You get a grounded, cited answer</h3>
+          <p>The response streams in with expandable sources, the evidence spans it drew from, and full retrieval
+            telemetry.</p>
         </div>
       </div>
-    </header>
+    </section>
 
-    <!-- Chat Area -->
-    <main class="chat-area" id="chat-area">
-
-      <!-- Welcome screen -->
-      <div class="welcome" id="welcome-screen">
-        <div class="hero">
-          <span class="hero-eyebrow">Evidence-grounded musculoskeletal education</span>
-          <h2>Understand what might be driving your symptoms</h2>
-          <p class="hero-sub">Describe where it hurts, what it feels like, and when it happens. Every answer is
-            grounded in the MSK Neurology evidence base and cites its sources — built for education, not diagnosis.</p>
-          <div class="hero-trust">
-            <span class="trust-item">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
-                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
-              Cites every source
-            </span>
-            <span class="trust-item">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
-                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
-              Built-in safety checks
-            </span>
-            <span class="trust-item">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
-                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="3" y="11" width="18" height="11" rx="2" />
-                <path d="M7 11V7a5 5 0 0110 0v4" />
-              </svg>
-              Private guest session
-            </span>
-          </div>
+    <!-- Using it well -->
+    <section class="section" id="using-it">
+      <div class="section-head">
+        <h2>How to get the most out of it</h2>
+        <p>A few habits that make answers noticeably better.</p>
+      </div>
+      <div class="card-grid two">
+        <div class="tip">
+          <h3>Be specific</h3>
+          <p>“Sharp pain on the inside edge of my shoulder blade when I sit at a desk” retrieves far better evidence
+            than “back pain”.</p>
         </div>
-
-        <div class="region-bar">
-          <span class="region-label">Start with a body region</span>
-          <div class="region-chips">
-            <button class="region-chip" data-query="I have neck pain">Neck</button>
-            <button class="region-chip" data-query="I have shoulder pain">Shoulder</button>
-            <button class="region-chip" data-query="I have upper back pain between my shoulder blades">Upper
-              Back</button>
-            <button class="region-chip" data-query="I have lower back pain">Lower Back</button>
-            <button class="region-chip" data-query="I have hip pain">Hip</button>
-            <button class="region-chip" data-query="I have knee pain">Knee</button>
-            <button class="region-chip" data-query="I have headaches that seem related to my neck">Headache</button>
-            <button class="region-chip" data-query="I have jaw pain and tightness on one side">Jaw / TMJ</button>
-            <button class="region-chip" data-query="I have pain and weakness in my arm">Arm</button>
-            <button class="region-chip" data-query="I have wrist pain and numbness in my fingers">Wrist / Hand</button>
-            <button class="region-chip" data-query="I have tingling and numbness in my arm">Nerve / Tingling</button>
-            <button class="region-chip" data-query="I feel dizzy when I turn my head">Dizziness</button>
-          </div>
+        <div class="tip">
+          <h3>Ask follow-up questions</h3>
+          <p>The conversation keeps context, so you can drill into a mechanism, ask for clarification, or explore a
+            related pattern.</p>
         </div>
-
-        <div class="topics-library">
-          <div class="topics-head">
-            <span class="topics-heading">Explore clinical topics</span>
-            <span class="topics-sub">Curated questions the evidence base covers in depth</span>
-          </div>
-
-          <!-- Biomechanics -->
-          <div class="topic-category">
-            <span class="category-label">Biomechanics</span>
-            <div class="scenario-chips">
-              <button class="scenario-chip"
-                data-query="Explain the biomechanics of scapular dyskinesis and how it affects the shoulder.">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 2a4 4 0 00-4 4 4 4 0 004 4h0a4 4 0 004-4 4 4 0 00-4-4z" />
-                    <path d="M6 14a4 4 0 00-4 4 4 4 0 004 4 4 4 0 004-4 4 4 0 00-4-4z" />
-                    <path d="M14.5 9.5L9.5 14.5" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Scapular Dyskinesis</span>
-                  <span class="scenario-desc">Altered shoulder blade motion and compensatory patterns</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="How does forward head posture affect the cervical spine and what muscles are involved?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 2a2 2 0 100 4 2 2 0 000-4z" />
-                    <path d="M12 6v6m0 0l-3 8m3-8l3 8" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Forward Head Posture</span>
-                  <span class="scenario-desc">Cervical mechanics, suboccipitals, and deep flexors</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="What is the role of breathing mechanics in neck and thoracic pain?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M17.7 7.7a7.5 7.5 0 10-11.4 0" />
-                    <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-                    <line x1="12" y1="18" x2="12" y2="22" />
-                    <line x1="8" y1="22" x2="16" y2="22" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Breathing Mechanics</span>
-                  <span class="scenario-desc">Scalene overactivity, rib mobility, and diaphragm function</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="How does cervical instability or atlas misalignment affect the body?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="3" />
-                    <path
-                      d="M12 1v2m0 18v2m-9-11h2m18 0h2m-3.3-6.7l-1.4 1.4M4.7 19.3l1.4-1.4m0-11.2L4.7 4.7m14.6 14.6l-1.4-1.4" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Cervical Instability</span>
-                  <span class="scenario-desc">Atlas rotation, ligament laxity, and upper cervical patterns</span>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <!-- Nerve & Vascular -->
-          <div class="topic-category">
-            <span class="category-label">Nerve &amp; Vascular</span>
-            <div class="scenario-chips">
-              <button class="scenario-chip"
-                data-query="What structures are usually responsible for thoracic outlet symptoms?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="4" />
-                    <line x1="12" y1="2" x2="12" y2="8" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Thoracic Outlet Syndrome</span>
-                  <span class="scenario-desc">Interscalene triangle, costoclavicular compression</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="Explain the common sites of cervical radiculopathy and how nerve root compression presents.">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Cervical Radiculopathy</span>
-                  <span class="scenario-desc">Nerve root levels, dermatomal patterns, and motor signs</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="What is the difference between carpal tunnel syndrome and proximal nerve compression?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 11V6a2 2 0 00-4 0v1M14 7V4a2 2 0 00-4 0v4M10 8V3a2 2 0 00-4 0v8" />
-                    <path d="M18 11a2 2 0 014 0v3a8 8 0 01-8 8h-2a8 8 0 01-6-2.7L4 17" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Carpal Tunnel vs Proximal</span>
-                  <span class="scenario-desc">Median nerve entrapment — wrist vs double crush</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="Where does the ulnar nerve get compressed and what are the symptoms at each site?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path
-                      d="M2 12h4m12 0h4M5.6 5.6l2.8 2.8m7.2 7.2l2.8 2.8M12 2v4m0 12v4M5.6 18.4l2.8-2.8m7.2-7.2l2.8-2.8" />
-                    <circle cx="12" cy="12" r="4" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Ulnar Nerve Entrapment</span>
-                  <span class="scenario-desc">Cubital tunnel, Guyon's canal, and compression sites</span>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <!-- Pain Patterns -->
-          <div class="topic-category">
-            <span class="category-label">Pain Patterns</span>
-            <div class="scenario-chips">
-              <button class="scenario-chip" data-query="How can atlas rotation contribute to headache patterns?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 2a7 7 0 017 7c0 3-2 5-4 6.5V18h-6v-2.5C7 14 5 12 5 9a7 7 0 017-7z" />
-                    <line x1="9" y1="18" x2="15" y2="18" />
-                    <line x1="10" y1="21" x2="14" y2="21" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Cervicogenic Headaches</span>
-                  <span class="scenario-desc">Upper cervical mechanics, suboccipital referral patterns</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="What causes pain between the shoulder blades when sitting at a desk?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 22c4-2 8-6 8-11a8 8 0 00-16 0c0 5 4 9 8 11z" />
-                    <circle cx="12" cy="11" r="3" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Interscapular Pain</span>
-                  <span class="scenario-desc">Rhomboid area discomfort from thoracic and postural causes</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="What is TMJ dysfunction and how does jaw pain relate to neck and head symptoms?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="8" width="18" height="10" rx="2" />
-                    <line x1="7" y1="8" x2="7" y2="18" />
-                    <line x1="12" y1="8" x2="12" y2="18" />
-                    <line x1="17" y1="8" x2="17" y2="18" />
-                    <line x1="3" y1="13" x2="21" y2="13" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">TMJ Dysfunction</span>
-                  <span class="scenario-desc">Jaw mechanics, clenching, and referred head/neck pain</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="How does referred pain work and how do you know if arm pain is coming from the neck?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="6" />
-                    <circle cx="12" cy="12" r="2" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Referred Pain Patterns</span>
-                  <span class="scenario-desc">Distinguishing local vs radicular vs referred sources</span>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <!-- Functional -->
-          <div class="topic-category">
-            <span class="category-label">Functional &amp; Activity</span>
-            <div class="scenario-chips">
-              <button class="scenario-chip"
-                data-query="What are the best ergonomic strategies and exercises for someone who works at a desk all day?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="2" y="4" width="20" height="12" rx="2" />
-                    <line x1="6" y1="16" x2="6" y2="20" />
-                    <line x1="18" y1="16" x2="18" y2="20" />
-                    <line x1="2" y1="10" x2="22" y2="10" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Desk Ergonomics</span>
-                  <span class="scenario-desc">Workstation setup, postural resets, and corrective exercises</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="What are common shoulder and neck issues in overhead athletes and how to address them?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M6.5 6.5a3.5 3.5 0 117 0 3.5 3.5 0 01-7 0z" />
-                    <path d="M3 17l3-3 4 4 4-4 3 3" />
-                    <line x1="17" y1="17" x2="21" y2="13" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Overhead Athletes</span>
-                  <span class="scenario-desc">Impingement, rotator cuff, and scapular control in sport</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="What are the long-term effects of whiplash and how should it be managed?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 22s-8-4.5-8-11.8a8 8 0 0116 0C20 17.5 12 22 12 22z" />
-                    <path d="M12 8v4l2 2" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Post-Whiplash</span>
-                  <span class="scenario-desc">Chronic neck pain, cervical instability, and recovery</span>
-                </div>
-              </button>
-              <button class="scenario-chip"
-                data-query="How does sleeping position affect neck and shoulder pain, and what positions are best?">
-                <span class="scenario-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" />
-                  </svg></span>
-                <div class="scenario-text">
-                  <span class="scenario-title">Sleep Posture</span>
-                  <span class="scenario-desc">Pillow height, side vs back, and nocturnal nerve compression</span>
-                </div>
-              </button>
-            </div>
-          </div>
+        <div class="tip">
+          <h3>Open the evidence drawers</h3>
+          <p>Under each answer, <strong>Sources</strong> and <strong>Evidence used</strong> show exactly which articles
+            and passages the answer is based on.</p>
+        </div>
+        <div class="tip">
+          <h3>Check “Why this answer?”</h3>
+          <p>Retrieval confidence, timing, and the refined query are shown for every response — transparency over
+            polish.</p>
+        </div>
+        <div class="tip">
+          <h3>Try Mechanics Study mode</h3>
+          <p>A focused mode for studying mechanisms from the articles — nerves, entrapment sites, and muscle
+            relationships. Interpretation only, never treatment planning.</p>
+        </div>
+        <div class="tip">
+          <h3>Start from a region or topic</h3>
+          <p>Not sure how to phrase it? The chat opens with body-region shortcuts and curated clinical topics the
+            evidence base covers in depth.</p>
         </div>
       </div>
+    </section>
 
-    </main>
-
-    <!-- Input Area -->
-    <div class="input-area">
-      <div class="composer">
-        <textarea id="user-input" placeholder="Describe where it hurts, what it feels like, and when it happens…"
-          rows="1"></textarea>
-        <div class="composer-bar">
-          <label class="mode-toggle" title="Article interpretation only, not diagnosis or treatment planning.">
-            <input type="checkbox" id="mechanics-study-toggle" />
-            <span class="mode-name">Mechanics Study</span>
-          </label>
-          <span class="mode-hint">Article interpretation only, not diagnosis or treatment planning.</span>
-          <button class="send-btn" id="send-btn" aria-label="Send">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 19V5M5 12l7-7 7 7" />
+    <!-- Safety -->
+    <section class="section" id="safety">
+      <div class="safety-card">
+        <div class="safety-card-head">
+          <span class="info-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <path d="M12 8v4M12 16h.01" />
             </svg>
-          </button>
+          </span>
+          <div>
+            <h2>When not to use this</h2>
+            <p>This is educational triage support, not medical advice. For any of the following, seek urgent in-person
+              care instead:</p>
+          </div>
         </div>
+        <ul class="safety-list">
+          <li>New or worsening weakness or numbness</li>
+          <li>Bowel or bladder changes</li>
+          <li>Major trauma with concerning symptoms</li>
+          <li>Fever with feeling very unwell</li>
+          <li>Unexplained weight loss with persistent pain</li>
+          <li>Severe chest pain or trouble breathing</li>
+        </ul>
+        <p class="safety-foot">These patterns are screened for deterministically on every message, before any AI
+          generation runs. If one is detected, the assistant stops and directs you to in-person care.</p>
       </div>
-      <p class="safety-note">
-        Guest mode: chats are not saved by this app. For new/worsening weakness, bowel or bladder changes,
-        major trauma, fever with feeling very unwell, unexplained weight loss, or severe chest pain/trouble breathing,
-        seek urgent in-person care.
-      </p>
+    </section>
+
+    <!-- Try it -->
+    <section class="section try-section">
+      <div class="section-head">
+        <h2>Try it now</h2>
+        <p>Start from a body region, or just describe what you're feeling.</p>
+      </div>
+      <div class="try-chips">
+        <a class="try-chip" href="chat.html?q=I%20have%20neck%20pain">Neck</a>
+        <a class="try-chip" href="chat.html?q=I%20have%20shoulder%20pain">Shoulder</a>
+        <a class="try-chip" href="chat.html?q=I%20have%20upper%20back%20pain%20between%20my%20shoulder%20blades">Upper
+          Back</a>
+        <a class="try-chip" href="chat.html?q=I%20have%20lower%20back%20pain">Lower Back</a>
+        <a class="try-chip" href="chat.html?q=I%20have%20headaches%20that%20seem%20related%20to%20my%20neck">Headache</a>
+        <a class="try-chip" href="chat.html?q=I%20have%20tingling%20and%20numbness%20in%20my%20arm">Nerve /
+          Tingling</a>
+        <a class="try-chip" href="chat.html?q=I%20have%20wrist%20pain%20and%20numbness%20in%20my%20fingers">Wrist /
+          Hand</a>
+        <a class="try-chip" href="chat.html?q=I%20feel%20dizzy%20when%20I%20turn%20my%20head">Dizziness</a>
+      </div>
+      <a class="btn btn-primary btn-lg" href="chat.html">
+        Start chatting
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+      </a>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section faq-section">
+      <div class="section-head">
+        <h2>Common questions</h2>
+      </div>
+      <details class="faq">
+        <summary>Is this medical advice?</summary>
+        <p>No. MSK Assist is an educational tool that explains biomechanical and neurological patterns described in its
+          evidence base. It does not diagnose, treat, or replace evaluation by a clinician.</p>
+      </details>
+      <details class="faq">
+        <summary>Is anything I type stored?</summary>
+        <p>No. The app runs in guest-only mode — conversations live in your browser session and are gone when you
+          close it. There are no accounts and no saved history.</p>
+      </details>
+      <details class="faq">
+        <summary>Where do the answers come from?</summary>
+        <p>From a curated corpus of musculoskeletal neurology articles, indexed into 1,300+ evidence passages. The
+          assistant retrieves the most relevant passages for your question and composes its answer only from them,
+          citing each source.</p>
+      </details>
+      <details class="faq">
+        <summary>What happens if I describe something urgent?</summary>
+        <p>Deterministic safety checks run on every message before anything else. If your description matches an
+          urgent pattern — like new weakness, bowel or bladder changes, or chest pain — the assistant stops and
+          directs you to in-person care rather than generating an answer.</p>
+      </details>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>MSK Assist · Educational triage support · Not medical advice</span>
+      <span>Guest-only prototype · <a href="https://github.com/Deepak-DCB/MSK_RAG_Chatbot" target="_blank"
+          rel="noopener">GitHub</a></span>
     </div>
+  </footer>
 
-    <!-- Footer -->
-    <div class="footer-bar">
-      <span>Educational triage support · Not medical advice</span>
-      <span>Guest-only local product prototype</span>
-    </div>
-
-  </div>
-
-  <script src="app.js?v=7"></script>
+  <script>
+    // Live source count from the backend health endpoint (graceful fallback).
+    fetch("https://msk-rag-chatbot.onrender.com/health")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d && d.chunk_count) {
+          document.getElementById("stat-sources").textContent =
+            d.chunk_count.toLocaleString() + " evidence passages";
+        }
+      })
+      .catch(() => { /* keep static fallback text */ });
+  </script>
 </body>
 
 </html>

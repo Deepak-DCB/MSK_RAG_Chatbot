@@ -83,6 +83,14 @@ async function init() {
     setupGuestMode();
     bindAuth();
 
+    // Landing page deep links: chat.html?q=... prefills the composer
+    const prefill = new URLSearchParams(window.location.search).get("q");
+    if (prefill) {
+        textarea.value = prefill;
+        textarea.style.height = "auto";
+        textarea.style.height = Math.min(textarea.scrollHeight, 120) + "px";
+    }
+
     if (AUTH_ENABLED && sbClient) {
         try {
             // Check existing session
