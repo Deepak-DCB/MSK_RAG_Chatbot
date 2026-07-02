@@ -11,6 +11,7 @@ Requires:
     OPENAI_API_KEY in .env
 """
 
+import argparse
 import os
 import re
 import time
@@ -18,15 +19,13 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
-import chromadb
 import numpy as np
 import pandas as pd
-from dotenv import load_dotenv
-from openai import OpenAI
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CHUNKS_PATH = PROJECT_ROOT / "MSKArticlesINDEX" / "chunks.parquet"
+LIT_CHUNKS_PATH = PROJECT_ROOT / "MSKArticlesINDEX" / "literature_chunks.parquet"
 STORE_DIR = PROJECT_ROOT / "chroma_store"
 COLLECTION_NAME = "msk_chunks"
 EMBED_MODEL = "text-embedding-3-large"  # 3072-dim, higher retrieval accuracy
@@ -66,7 +65,7 @@ def make_metadata(df: pd.DataFrame, textcol: str) -> List[Dict[str, Any]]:
     return records
 
 
-def embed_batch(client: OpenAI, texts: List[str]) -> List[List[float]]:
+def embed_batch(client, texts: List[str]) -> List[List[float]]:
     """Call OpenAI embeddings API for a batch of texts."""
     resp = client.embeddings.create(model=EMBED_MODEL, input=texts)
     return [d.embedding for d in resp.data]
@@ -74,18 +73,38 @@ def embed_batch(client: OpenAI, texts: List[str]) -> List[List[float]]:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main():
-    load_dotenv(PROJECT_ROOT / ".env")
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not found in .env")
-
-    openai_client = OpenAI(api_key=api_key)
-
-    # 1) Load chunks
+def load_chunks(with_literature: bool) -> pd.DataFrame:
+    """Load blog chunks, tag them as author_assertion, and optionally merge the
+    peer-reviewed literature chunks into the same frame (single collection)."""
     log.info("📂 Loading %s", CHUNKS_PATH)
     df = pd.read_parquet(CHUNKS_PATH)
-    log.info("   %d rows loaded", len(df))
+    log.info("   %d blog rows loaded", len(df))
+    # Backfill tiering for the existing blog corpus (idempotent).
+    if "source_type" not in df.columns:
+        df["source_type"] = "blog"
+    if "evidence_tier" not in df.columns:
+        df["evidence_tier"] = "author_assertion"
+
+    if with_literature and LIT_CHUNKS_PATH.exists():
+        lit = pd.read_parquet(LIT_CHUNKS_PATH)
+        log.info("📚 Merging %d literature rows from %s", len(lit), LIT_CHUNKS_PATH.name)
+        df = pd.concat([df, lit], ignore_index=True, sort=False)
+    elif with_literature:
+        log.warning("⚠️  --with-literature set but %s not found; run chunk_literature.py first", LIT_CHUNKS_PATH.name)
+    return df
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Rebuild chroma_store from chunk parquets.")
+    ap.add_argument("--with-literature", action="store_true",
+                    help="Merge literature_chunks.parquet into the msk_chunks collection")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Assemble + report the frame and exit BEFORE embedding/indexing "
+                         "(no OpenAI calls, no writes to chroma_store)")
+    args = ap.parse_args()
+
+    # 1) Load chunks (+ optional literature)
+    df = load_chunks(args.with_literature)
 
     # 2) Pick text column
     textcol = "embed_text" if "embed_text" in df.columns else "body"
@@ -95,6 +114,33 @@ def main():
     mask = ~df[textcol].fillna("").apply(is_bad)
     df = df[mask].reset_index(drop=True)
     log.info("📉 After filtering: %d chunks remain", len(df))
+
+    # 3b) Report tier / source distribution
+    if "evidence_tier" in df.columns:
+        log.info("🏷️  evidence_tier: %s", df["evidence_tier"].value_counts().to_dict())
+    if "source_type" in df.columns:
+        log.info("🏷️  source_type  : %s", df["source_type"].value_counts().to_dict())
+
+    if args.dry_run:
+        sample = make_metadata(df.head(1), textcol)
+        log.info("🧪 DRY RUN — %d chunks would be embedded/indexed into '%s'", len(df), COLLECTION_NAME)
+        log.info("   sample metadata keys: %s", sorted(sample[0].keys()) if sample else [])
+        lit_sample = df[df.get("source_type").eq("literature")] if "source_type" in df.columns else df.iloc[0:0]
+        if len(lit_sample):
+            log.info("   sample literature metadata: %s", make_metadata(lit_sample.head(1), textcol)[0])
+        log.info("   No OpenAI calls made, chroma_store untouched.")
+        return
+
+    # Heavy/optional deps imported only for a real indexing run.
+    import chromadb
+    from dotenv import load_dotenv
+    from openai import OpenAI
+
+    load_dotenv(PROJECT_ROOT / ".env")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not found in .env")
+    openai_client = OpenAI(api_key=api_key)
 
     # 4) Prepare texts
     texts = df[textcol].astype(str).tolist()
