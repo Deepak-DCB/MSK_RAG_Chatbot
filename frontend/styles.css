@@ -1190,9 +1190,44 @@ button {
     border-top: 1px solid var(--line-soft);
 }
 
+/* Generation model picker */
+.model-picker {
+    margin-left: auto;   /* groups the picker + key btn + send to the right */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    color: var(--ink-2);
+    white-space: nowrap;
+}
+
+.model-picker-label { color: var(--ink-2); }
+
+#model-select {
+    max-width: 12rem;
+    padding: 0.26rem 0.5rem;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-full);
+    cursor: pointer;
+}
+
+#model-select:hover { border-color: var(--line-strong, var(--line)); }
+
+.model-custom {
+    width: 9rem;
+    padding: 0.26rem 0.5rem;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-full);
+}
+
 /* Bring-your-own-key controls */
 .key-btn {
-    margin-left: auto;
     padding: 0.28rem 0.6rem;
     font-size: 0.72rem;
     color: var(--ink-2);

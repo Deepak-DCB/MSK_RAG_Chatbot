@@ -161,6 +161,8 @@ def test_call_provider_constructs_client_with_base_url_and_headers(monkeypatch):
 class _Cfg:
     openai_model = "gpt-4.1-mini"
     num_predict = 100
+    generation_provider = None
+    generation_model = None
 
 
 def test_fallback_uses_first_working_provider(monkeypatch):
@@ -184,11 +186,12 @@ def test_fallback_uses_first_working_provider(monkeypatch):
     monkeypatch.setattr(qaEngine, "_call_provider", _fake_call)
 
     got = []
-    text, pt, ot, mode = qaEngine.generate_answer_with_fallback(
+    text, pt, ot, mode, model = qaEngine.generate_answer_with_fallback(
         "prompt", _Cfg(), context=[], context_pack=None, question="q", on_token=got.append,
     )
     assert mode == "llm:cerebras"
     assert text == "via cerebras"
+    assert model == "m"          # the cerebras spec's model is reported
     assert got == ["via cerebras"]
 
 
@@ -196,10 +199,11 @@ def test_fallback_to_evidence_only_when_all_providers_fail(monkeypatch):
     monkeypatch.setattr(qaEngine, "ask_openai_llm", lambda *a, **k: (_ for _ in ()).throw(qaEngine.OpenAIKeyError("dead")))
     monkeypatch.setattr(qaEngine, "_configured_providers", lambda: [])
 
-    text, pt, ot, mode = qaEngine.generate_answer_with_fallback(
+    text, pt, ot, mode, model = qaEngine.generate_answer_with_fallback(
         "prompt", _Cfg(), context=[], context_pack=None, question="q",
     )
     assert mode == "evidence_only"
+    assert model is None
     assert "in-person" in text.lower()
 
 

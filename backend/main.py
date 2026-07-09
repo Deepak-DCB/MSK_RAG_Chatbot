@@ -36,6 +36,7 @@ from qaEngine import (  # noqa: E402
     agentic_run,
     detect_red_flags,
     detect_scope_issue,
+    generation_catalog,
 )
 from mechanics_retrieval import build_mechanics_context  # noqa: E402
 
@@ -315,6 +316,8 @@ class AskResponse(BaseModel):
     openai_model: str
     config_source: str
     user_key_active: bool = False
+    generation_provider: Optional[str] = None
+    generation_model: Optional[str] = None
     triage_level: Optional[str] = None
     safety_gate_triggered: bool = False
     safety_gate_reasons: List[str] = Field(default_factory=list)
@@ -502,12 +505,16 @@ def _build_mechanics_study_answer(question: str, ctx: Dict[str, Any], include_ev
 
 # Public request-config allow-list. A user-supplied `api_key` is accepted but handled
 # specially (validated, never logged, never echoed) — everything else is dropped.
-_PUBLIC_CONFIG_KEYS = {"use_reranker", "reranker_top_n", "api_key"}
+_PUBLIC_CONFIG_KEYS = {"use_reranker", "reranker_top_n", "api_key", "provider", "model"}
 
 # Format-based validation for a BYO key. Deliberately NOT tied to an "sk-" prefix
 # (OpenAI uses sk-, sk-proj-, and other shapes; proxies differ). We accept a bounded
 # token of key-safe characters and reject anything with whitespace/control/quote chars.
 _API_KEY_RE = re.compile(r"^[A-Za-z0-9_\-]{20,512}$")
+
+# Bounded model id: alnum plus the punctuation real model ids use (. _ - : /).
+_MODEL_RE = re.compile(r"^[A-Za-z0-9._:\-\/]{1,128}$")
+_KNOWN_PROVIDERS = {"openai", "groq", "cerebras", "openrouter", "mistral", "gemini"}
 
 
 def _sanitize_user_api_key(value: Any) -> Optional[str]:
@@ -524,6 +531,22 @@ def _sanitize_user_api_key(value: Any) -> Optional[str]:
     return key
 
 
+def _sanitize_provider(value: Any) -> Optional[str]:
+    """Return a known generation provider name (lowercased) or None."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip().lower()
+    return v if v in _KNOWN_PROVIDERS else None
+
+
+def _sanitize_model(value: Any) -> Optional[str]:
+    """Return a bounded, format-valid model id, or None."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    return v if _MODEL_RE.match(v) else None
+
+
 def _config_meta(cfg: QAConfig, source: str) -> Dict[str, Any]:
     return {
         "reranker_mode": "per_source" if cfg.use_reranker else "off",
@@ -533,6 +556,10 @@ def _config_meta(cfg: QAConfig, source: str) -> Dict[str, Any]:
         "config_source": source,
         # Presence flag only — the key value itself is never exposed in telemetry.
         "user_key_active": bool(getattr(cfg, "api_key", None)),
+        # Requested generation selection (the model actually used is reported
+        # separately from the run result, since a pinned choice can fall back).
+        "generation_provider": getattr(cfg, "generation_provider", None),
+        "generation_model": getattr(cfg, "generation_model", None),
     }
 
 
@@ -566,7 +593,17 @@ def _build_config(cfg_dict: Optional[Dict[str, Any]]) -> Tuple[QAConfig, Dict[st
             user_key = _sanitize_user_api_key(cfg_dict.get("api_key"))
             if user_key:
                 safe_cfg["api_key"] = user_key
+        if "provider" in cfg_dict:
+            prov = _sanitize_provider(cfg_dict.get("provider"))
+            if prov:
+                safe_cfg["generation_provider"] = prov
+        if "model" in cfg_dict:
+            mdl = _sanitize_model(cfg_dict.get("model"))
+            if mdl:
+                safe_cfg["generation_model"] = mdl
         if any(safe_cfg[key] != default_cfg[key] for key in ("use_reranker", "reranker_top_n")):
+            source = "request_override"
+        if safe_cfg.get("generation_provider") or safe_cfg.get("generation_model"):
             source = "request_override"
     if safe_cfg.get("api_key"):
         source = "user_key"
@@ -589,6 +626,22 @@ def health():
         "chroma_loaded": coll is not None,
         "chunk_count": coll.count() if coll else 0,
     }
+
+
+@app.get("/models")
+def models():
+    """Generation providers/models the UI dropdown may offer.
+
+    Free providers appear as selectable only when their server-side key is
+    configured; the premium provider (OpenAI) is always listed but flagged as
+    requiring the user's own key. Model lists are suggestions — a custom model
+    string is also accepted per provider.
+    """
+    try:
+        return generation_catalog()
+    except Exception:
+        logger.exception("generation_catalog failed")
+        return {"providers": [], "default_provider": "openai", "default_model": "gpt-4.1-mini"}
 
 
 @app.post("/ask", response_model=AskResponse)
@@ -643,6 +696,8 @@ def ask(req: AskRequest, request: Request):
         openai_model=cfg_meta["openai_model"],
         config_source=cfg_meta["config_source"],
         user_key_active=bool(cfg_meta.get("user_key_active", False)),
+        generation_provider=cfg_meta.get("generation_provider"),
+        generation_model=res.get("generation_model") or cfg_meta.get("generation_model"),
         triage_level=res.get("triage_level"),
         safety_gate_triggered=bool(res.get("safety_gate_triggered", False)),
         safety_gate_reasons=res.get("safety_gate_reasons", []) or [],
@@ -827,6 +882,8 @@ def ask_stream(req: AskRequest, request: Request,
             "openai_model": cfg_meta["openai_model"],
             "config_source": cfg_meta["config_source"],
             "user_key_active": bool(cfg_meta.get("user_key_active", False)),
+            "generation_provider": cfg_meta.get("generation_provider"),
+            "generation_model": result_holder.get("generation_model") or cfg_meta.get("generation_model"),
             "triage_level": result_holder.get("triage_level"),
             "safety_gate_triggered": bool(result_holder.get("safety_gate_triggered", False)),
             "safety_gate_reasons": result_holder.get("safety_gate_reasons", []) or [],

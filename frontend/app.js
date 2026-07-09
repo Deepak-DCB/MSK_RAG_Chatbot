@@ -27,8 +27,20 @@ const REQUEST_CONFIG = {
 const API_KEY_STORAGE = "msk_openai_key";
 let userApiKey = null;
 
+// ── Generation model selection (optional, driven by GET /models) ─────────────
+// { provider, model }. When set, the backend pins generation to this choice.
+const MODEL_STORAGE = "msk_model_choice";
+let modelCatalog = null;
+let modelChoice = { provider: null, model: null };
+
 function buildRequestConfig() {
-    return userApiKey ? { ...REQUEST_CONFIG, api_key: userApiKey } : REQUEST_CONFIG;
+    const cfg = { ...REQUEST_CONFIG };
+    if (userApiKey) cfg.api_key = userApiKey;
+    if (modelChoice.provider && modelChoice.model) {
+        cfg.provider = modelChoice.provider;
+        cfg.model = modelChoice.model;
+    }
+    return cfg;
 }
 
 function setupApiKeyPanel() {
@@ -47,6 +59,8 @@ function setupApiKeyPanel() {
         btn.classList.toggle("key-active", active);
         if (btnLabel) btnLabel.textContent = active ? "Key set" : "API key";
         if (status) status.textContent = active ? "Your key is active in this browser." : "";
+        // Adding/clearing a key enables or disables premium (OpenAI) models.
+        if (modelCatalog) renderModelOptions();
     }
 
     // Restore a previously entered key (localStorage takes precedence — it means the
@@ -93,6 +107,111 @@ function openApiKeyPanel() {
         panel.hidden = false;
         if (input) input.focus();
     }
+}
+
+// ── Model dropdown ───────────────────────────────────────────────────────────
+function persistModelChoice() {
+    try { localStorage.setItem(MODEL_STORAGE, JSON.stringify(modelChoice)); } catch (_) { /* ignore */ }
+}
+
+async function setupModelSelect() {
+    const picker = document.getElementById("model-picker");
+    const sel = document.getElementById("model-select");
+    const custom = document.getElementById("model-custom");
+    if (!picker || !sel) return;
+
+    try {
+        const r = await fetch(`${API_URL}/models`);
+        modelCatalog = r.ok ? await r.json() : null;
+    } catch (_) {
+        modelCatalog = null;
+    }
+    if (!modelCatalog || !Array.isArray(modelCatalog.providers) || !modelCatalog.providers.length) {
+        picker.hidden = true;   // no catalog → hide the control entirely
+        return;
+    }
+
+    // Restore a previously saved choice (may become unavailable → re-defaulted below).
+    try {
+        const saved = JSON.parse(localStorage.getItem(MODEL_STORAGE) || "null");
+        if (saved && saved.provider && saved.model) modelChoice = saved;
+    } catch (_) { /* ignore */ }
+
+    picker.hidden = false;
+    renderModelOptions();
+
+    sel.addEventListener("change", () => {
+        if (sel.value === "__custom__") {
+            custom.hidden = false;
+            custom.focus();
+            return;
+        }
+        if (custom) custom.hidden = true;
+        const opt = sel.selectedOptions[0];
+        if (opt && opt.dataset.provider) {
+            modelChoice = { provider: opt.dataset.provider, model: opt.value };
+            persistModelChoice();
+        }
+    });
+
+    if (custom) {
+        custom.addEventListener("change", () => {
+            const val = (custom.value || "").trim();
+            const provider = custom.dataset.provider || "openai";
+            if (val) { modelChoice = { provider, model: val }; persistModelChoice(); }
+        });
+    }
+}
+
+// (Re)build the grouped option list. Free providers are selectable only when the
+// server has their key; premium (OpenAI) is enabled once the user adds a BYO key.
+// Called again whenever the BYO-key state changes.
+function renderModelOptions() {
+    const sel = document.getElementById("model-select");
+    const custom = document.getElementById("model-custom");
+    if (!sel || !modelCatalog || !Array.isArray(modelCatalog.providers)) return;
+
+    const hasKey = Boolean(userApiKey);
+    sel.innerHTML = "";
+    let firstEnabled = null;
+    let matchedSaved = false;
+
+    modelCatalog.providers.forEach((p) => {
+        const enabled = p.tier === "free" ? Boolean(p.server_key) : (hasKey || Boolean(p.server_key));
+        const group = document.createElement("optgroup");
+        group.label = p.label + (enabled ? "" : (p.requires_user_key ? " — add your key" : " — unavailable"));
+        (p.models || []).forEach((m) => {
+            const o = document.createElement("option");
+            o.value = m;
+            o.textContent = m;
+            o.dataset.provider = p.name;
+            o.disabled = !enabled;
+            if (enabled && !firstEnabled) firstEnabled = { provider: p.name, model: m, el: o };
+            if (enabled && modelChoice.provider === p.name && modelChoice.model === m) {
+                o.selected = true;
+                matchedSaved = true;
+            }
+            group.appendChild(o);
+        });
+        sel.appendChild(group);
+    });
+
+    const customOpt = document.createElement("option");
+    customOpt.value = "__custom__";
+    customOpt.textContent = "Custom…";
+    sel.appendChild(customOpt);
+
+    // If the saved choice isn't currently selectable, fall back to the first enabled one.
+    if (!matchedSaved) {
+        if (firstEnabled) {
+            firstEnabled.el.selected = true;
+            modelChoice = { provider: firstEnabled.provider, model: firstEnabled.model };
+        } else {
+            modelChoice = { provider: null, model: null };
+        }
+        persistModelChoice();
+    }
+    if (custom) custom.dataset.provider = (firstEnabled && firstEnabled.provider) || "openai";
 }
 
 // Render an "API key unavailable" error with a call-to-action to add a personal key.
@@ -168,6 +287,7 @@ async function init() {
     bindChips();
     setupGuestMode();
     setupApiKeyPanel();
+    setupModelSelect();
     bindAuth();
 
     // Landing page deep links: chat.html?q=... prefills the composer
@@ -886,6 +1006,10 @@ function appendTelemetry(bubble, meta, endToEnd) {
     const retrievalBadge = retrievalDegraded
         ? `<span class="stat-badge mode-degraded">Retrieval ${escapeHtml(retrievalMode)}</span>`
         : "";
+    const genModel = meta.generation_model;
+    const modelBadge = genModel
+        ? `<span class="stat-badge">Model ${escapeHtml(genModel)}</span>`
+        : "";
 
     const toggleBtn = document.createElement("div");
     toggleBtn.className = "telemetry-toggle";
@@ -905,6 +1029,7 @@ function appendTelemetry(bubble, meta, endToEnd) {
         <span class="stat-badge">Prompt ${meta.prompt_tokens || 0}</span>
         <span class="stat-badge">Output ${meta.output_tokens || 0}</span>
         <span class="stat-badge ${confClass}">Confidence ${conf.toFixed(2)}</span>
+        ${modelBadge}
         ${answerBadge}
         ${retrievalBadge}
     </div>`;

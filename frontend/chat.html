@@ -490,6 +490,13 @@
             <span class="mode-name">Mechanics Study</span>
           </label>
           <span class="mode-hint">Article interpretation only, not diagnosis or treatment planning.</span>
+          <label class="model-picker" id="model-picker" title="Choose which model generates the answer" hidden>
+            <span class="model-picker-label">Model</span>
+            <select id="model-select" aria-label="Generation model"></select>
+            <input type="text" id="model-custom" class="model-custom" hidden
+              placeholder="custom model id" autocomplete="off" spellcheck="false"
+              aria-label="Custom model id" />
+          </label>
           <button type="button" class="key-btn" id="api-key-btn" title="Use your own OpenAI API key">
             🔑 <span id="api-key-btn-label">API key</span>
           </button>

@@ -356,6 +356,13 @@ class QAConfig:
     openai_model: str = OPENAI_MODEL
     generate_answer: bool = True
 
+    # Optional per-request generation model selection (UI dropdown). When
+    # generation_provider is set, generation is pinned to that provider+model
+    # (falling back only to the deterministic evidence-only answer). When unset,
+    # the default OpenAI -> free-providers -> evidence-only chain is used.
+    generation_provider: Optional[str] = None
+    generation_model: Optional[str] = None
+
     use_reranker: bool = True
     reranker_top_n: int = 10
 
@@ -2470,6 +2477,91 @@ def _configured_providers() -> List[ProviderSpec]:
     return specs
 
 
+# Curated model suggestions per provider for the UI dropdown. These are convenient
+# presets only — a custom model string is also accepted per provider.
+_SUGGESTED_MODELS: Dict[str, List[str]] = {
+    "openai": ["gpt-5.4-mini", "gpt-4.1-mini", "gpt-4.1-nano"],
+    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-20b"],
+    "cerebras": ["llama-3.3-70b", "llama3.1-8b"],
+    "openrouter": ["openrouter/auto"],
+    "mistral": ["mistral-small-latest", "mistral-large-latest"],
+    "gemini": ["gemini-2.0-flash", "gemini-2.0-flash-lite"],
+}
+
+# Providers that require the user's own key (the server key may be dead/absent).
+_PREMIUM_PROVIDERS = {"openai"}
+
+
+def _provider_spec_for(name: str, model_override: Optional[str] = None) -> Optional[ProviderSpec]:
+    """Build a ProviderSpec for a single free provider by name, or None if its
+    server-side API key is not configured. Used to pin generation to a chosen
+    provider regardless of its position in the fallback priority order."""
+    definition = _PROVIDER_DEFS.get(name)
+    if not definition:
+        return None
+    api_key = os.getenv(definition["api_key_env"])
+    if not api_key:
+        return None
+    return ProviderSpec(
+        name=name,
+        base_url=definition["base_url"],
+        api_key=api_key,
+        model=model_override or os.getenv(definition["model_env"]) or definition["default_model"],
+        extra_headers=definition.get("extra_headers"),
+        supports_streaming=definition.get("supports_streaming", True),
+        param_style=definition.get("param_style", "compat"),
+    )
+
+
+def generation_catalog() -> Dict[str, Any]:
+    """Describe the generation providers/models the UI may offer.
+
+    Free providers appear as selectable only when their server-side key is configured
+    (``server_key``); the premium provider (OpenAI) is always listed but flagged
+    ``requires_user_key`` since the server key may be exhausted. Model lists are
+    suggestions — a custom model string is also accepted per provider. The default is
+    the first configured free provider, else OpenAI.
+    """
+    configured = {spec.name for spec in _configured_providers()}
+    providers: List[Dict[str, Any]] = [{
+        "name": "openai",
+        "label": "OpenAI",
+        "tier": "premium",
+        "server_key": bool(os.getenv("OPENAI_API_KEY")),
+        "requires_user_key": True,
+        "default_model": OPENAI_MODEL,
+        "models": list(_SUGGESTED_MODELS["openai"]),
+        "allow_custom": True,
+    }]
+    for name in _DEFAULT_PROVIDER_ORDER:
+        definition = _PROVIDER_DEFS.get(name)
+        if not definition:
+            continue
+        providers.append({
+            "name": name,
+            "label": name.capitalize(),
+            "tier": "free",
+            "server_key": name in configured,
+            "requires_user_key": False,
+            "default_model": os.getenv(definition["model_env"]) or definition["default_model"],
+            "models": list(_SUGGESTED_MODELS.get(name, [definition["default_model"]])),
+            "allow_custom": True,
+        })
+    default_provider = next(
+        (p["name"] for p in providers if p["tier"] == "free" and p["server_key"]),
+        "openai",
+    )
+    default_model = next(
+        (p["default_model"] for p in providers if p["name"] == default_provider),
+        OPENAI_MODEL,
+    )
+    return {
+        "providers": providers,
+        "default_provider": default_provider,
+        "default_model": default_model,
+    }
+
+
 def _call_provider(
     spec: ProviderSpec,
     prompt: str,
@@ -2507,14 +2599,21 @@ def generate_answer_with_fallback(
     question: str,
     on_token=None,
     history=None,
-) -> Tuple[str, int, int, str]:
-    """Generate an answer, degrading gracefully through a fallback chain:
+) -> Tuple[str, int, int, str, Optional[str]]:
+    """Generate an answer, degrading gracefully.
 
-        OpenAI (effective key)  ->  free providers (Groq, Cerebras, ...)  ->  evidence-only
+    Two modes:
+      * **Pinned** (``cfg.generation_provider`` set) — the user picked a specific
+        provider+model in the UI. Use exactly that; on failure go straight to the
+        deterministic evidence-only answer (predictable: you get what you picked or a
+        safe grounded answer, never a silently different model).
+      * **Default** (no pin) — the resilience chain:
+        OpenAI (effective key) -> free providers (Groq, Cerebras, ...) -> evidence-only.
 
-    Returns (answer, prompt_tokens, output_tokens, answer_mode). To keep the streamed
-    client output coherent, a provider is only abandoned for the next one if it failed
-    *before* emitting any tokens; a mid-stream failure is surfaced to the caller.
+    Returns (answer, prompt_tokens, output_tokens, answer_mode, generation_model). The
+    last element is the model that actually produced the answer (None for evidence-only).
+    To keep streamed output coherent, a provider is only abandoned for the next one if it
+    failed *before* emitting any tokens; a mid-stream failure is surfaced to the caller.
     """
     tokens_emitted = 0
 
@@ -2524,13 +2623,55 @@ def generate_answer_with_fallback(
         if on_token:
             on_token(tok)
 
+    def _evidence_only() -> Tuple[str, int, int, str, Optional[str]]:
+        text = build_evidence_only_answer(context, context_pack, question)
+        if on_token and tokens_emitted == 0:
+            on_token(text)
+        return text, count_tokens(prompt), count_tokens(text), "evidence_only", None
+
+    # ── Pinned selection: honor the user's explicit provider+model choice. ──
+    pinned = (cfg.generation_provider or "").strip().lower()
+    pinned_model = (cfg.generation_model or "").strip() or None
+    if pinned:
+        if pinned == "openai":
+            model = pinned_model or cfg.openai_model
+            try:
+                text, pt, ot = ask_openai_llm(
+                    prompt, model=model, num_predict=cfg.num_predict,
+                    on_token=_tracked, history=history,
+                )
+                return text, pt, ot, "llm:openai", model
+            except OpenAIKeyError as exc:
+                if tokens_emitted > 0:
+                    raise
+                logger.warning("pinned openai model unavailable (%s); using evidence-only", exc)
+        else:
+            spec = _provider_spec_for(pinned, pinned_model)
+            if spec is None:
+                logger.warning("pinned provider %s has no server key; using evidence-only", pinned)
+            else:
+                try:
+                    text, pt, ot = _call_provider(
+                        spec, prompt, cfg.num_predict, on_token=_tracked, history=history,
+                    )
+                    return text, pt, ot, f"llm:{spec.name}", spec.model
+                except Exception as exc:
+                    if tokens_emitted > 0:
+                        raise
+                    logger.warning(
+                        "pinned provider %s failed (%s: %s); using evidence-only",
+                        pinned, type(exc).__name__, exc,
+                    )
+        return _evidence_only()
+
+    # ── Default resilience chain (no explicit pin). ──
     # 1) Primary: OpenAI (uses the per-request key if supplied, else the env key).
     try:
         text, pt, ot = ask_openai_llm(
             prompt, model=cfg.openai_model, num_predict=cfg.num_predict,
             on_token=_tracked, history=history,
         )
-        return text, pt, ot, "llm:openai"
+        return text, pt, ot, "llm:openai", cfg.openai_model
     except OpenAIKeyError as exc:
         if tokens_emitted > 0:
             raise
@@ -2542,7 +2683,7 @@ def generate_answer_with_fallback(
             text, pt, ot = _call_provider(
                 spec, prompt, cfg.num_predict, on_token=_tracked, history=history,
             )
-            return text, pt, ot, f"llm:{spec.name}"
+            return text, pt, ot, f"llm:{spec.name}", spec.model
         except Exception as exc:
             if tokens_emitted > 0:
                 raise
@@ -2554,10 +2695,7 @@ def generate_answer_with_fallback(
 
     # 3) Last resort: deterministic evidence-only answer (never fails).
     logger.warning("all generation providers unavailable; using evidence-only answer")
-    text = build_evidence_only_answer(context, context_pack, question)
-    if on_token:
-        on_token(text)
-    return text, count_tokens(prompt), count_tokens(text), "evidence_only"
+    return _evidence_only()
 
 
 
@@ -2577,6 +2715,7 @@ def run_qa(
     cfg = config or QAConfig()
     answer_question = generation_question or question
     first_token_latency = None
+    generation_model: Optional[str] = None
 
     effective_budget_tokens = (
         cfg.budget_tokens if cfg.budget_tokens and cfg.budget_tokens > 0
@@ -2621,6 +2760,7 @@ def run_qa(
             "retrieval_confidence": 0.0,  # TIER1
             "retrieval_mode": retrieval_mode,
             "answer_mode": "no_context",
+            "generation_model": None,
             "original_question": answer_question,
             "refined_query": question,
             "context_strategy": "chunk_pack",
@@ -2729,6 +2869,7 @@ def run_qa(
             "retrieval_confidence": float(retrieval_confidence),  # TIER1
             "retrieval_mode": retrieval_mode,
             "answer_mode": "no_context",
+            "generation_model": None,
             "original_question": answer_question,
             "refined_query": question,
             "context_strategy": "chunk_pack",
@@ -2761,7 +2902,7 @@ def run_qa(
                 on_token(tok)
 
         # Generate with graceful degradation: OpenAI -> free providers -> evidence-only.
-        answer_text, prompt_tokens, output_tokens, answer_mode = generate_answer_with_fallback(
+        answer_text, prompt_tokens, output_tokens, answer_mode, generation_model = generate_answer_with_fallback(
             prompt,
             cfg,
             context,
@@ -2830,6 +2971,7 @@ def run_qa(
         "retrieval_confidence": float(retrieval_confidence),
         "retrieval_mode": retrieval_mode,
         "answer_mode": answer_mode,
+        "generation_model": generation_model,
     }
 
 
