@@ -62,3 +62,9 @@ Eval/
 
 goldset_ui/
 # chroma_store/ — UN-IGNORED: must be committed for Render deployment
+.vercel
+.env*
+
+# Claude Code local state (settings + leftover worktrees) — never commit
+.claude/
+nul

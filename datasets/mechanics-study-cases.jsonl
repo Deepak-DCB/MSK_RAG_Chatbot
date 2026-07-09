@@ -1,0 +1,5 @@
+{"id":"mechanics_brachial_plexus_compression_sites","question":"Where can the brachial plexus get compressed according to the current corpus?","expected_terms":["brachial plexus","interscalene triangle","costoclavicular"],"expect_chain":false}
+{"id":"mechanics_scalenes_trapezius","question":"How do scalenes and trapezius work together mechanically?","expected_terms":["scalenes","trapezius","clavicle"],"expect_chain":true}
+{"id":"mechanics_scalenes_first_rib_costoclavicular","question":"What is the chain from scalenes to first rib to costoclavicular compression?","expected_terms":["scalenes","first rib","costoclavicular","brachial plexus"],"expect_chain":true}
+{"id":"mechanics_dsn_symptoms","question":"What does the current corpus support about dorsal scapular nerve symptoms?","expected_terms":["dorsal scapular nerve","pain between shoulder blades","indirect"],"expect_chain":true}
+{"id":"mechanics_dsn_not_proven","question":"What does the current mechanics map not prove about dorsal scapular nerve entrapment?","expected_terms":["dorsal scapular nerve","does not prove","entrapment site"],"expect_chain":false}

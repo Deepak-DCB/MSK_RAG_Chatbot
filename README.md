@@ -11,8 +11,8 @@ This repository is best understood as a `retrieval engineering project`, not a g
 ## 30-Second View
 
 - `System identity:` production-minded RAG pipeline over a constrained MSK biomechanics corpus mirrored from `MSKNeurology.com`
-- `Retrieval design:` history-aware query rewrite/classification, hybrid dense + BM25 retrieval, adaptive multi-query expansion, explicit biasing, deterministic context packing, optional per-source reranking
-- `Operational discipline:` FastAPI backend, SSE streaming, server-side safety caps, request allowlisting, rate limiting, deployment split across Render + Vercel
+- `Retrieval design:` deterministic red-flag gate, history-aware query rewrite/classification, hybrid dense + BM25 retrieval, adaptive multi-query expansion, explicit biasing, deterministic context packing, optional per-source reranking
+- `Operational discipline:` guest-only public prototype UI, FastAPI backend, SSE streaming, server-side safety caps, request allowlisting, rate limiting, deployment split across Render + Vercel
 - `Observability:` backend emits rich metadata (citations, confidence, timings, token counts, refined query, category, reranker/config metadata, stream completion status); frontend renders a practical subset
 - `Evaluation:` gold-set retrieval metrics, production-faithful run artifacts, explicit answer-grounding and red-flag safety checks, plus visible negative-result ablations
 
@@ -36,19 +36,22 @@ The canonical runtime surfaces are:
 - `frontend/app.js`, `frontend/index.html`, `frontend/styles.css` - chat UI and telemetry rendering
 - `scripts/run_eval_production.py` - production-faithful evaluation runner
 
+Modern hierarchical / long-context support is documented in `docs/modern_rag_upgrade.md`. The upgrade adds reconstructed article, section, paragraph, and evidence-span artifacts under `MSKArticlesINDEX/hierarchical/` while preserving the existing FastAPI, SSE, safety-gate, and deployment contracts. The optional evidence-grounded mechanism graph layer is documented in `docs/concept_graph_layer.md`; it uses deterministic concept paths to focus context and supporting spans rather than adding broad prompt context on top of `hybrid_long_context`.
+
 ### Retrieval pipeline
 
 The online query path is intentionally explicit:
 
-1. vagueness gate for underspecified prompts
-2. history-aware query classification and rewrite
-3. adaptive multi-query expansion when confidence is weak
-4. hybrid dense + BM25 retrieval fused with reciprocal rank fusion
-5. section/topic biasing to reward mechanism-dense content and suppress low-yield narrative sections
-6. optional per-source reranking
-7. deterministic context packing under token and per-source caps
-8. context compression to keep the most relevant sentence-level evidence
-9. answer generation grounded in packed retrieved context, with bounded conversation context and explicit safety instructions
+1. deterministic red-flag gate before retrieval or generation
+2. vagueness gate for underspecified prompts
+3. history-aware query classification and rewrite
+4. adaptive multi-query expansion when confidence is weak
+5. hybrid dense + BM25 retrieval fused with reciprocal rank fusion
+6. section/topic biasing to reward mechanism-dense content and suppress low-yield narrative sections
+7. optional per-source reranking
+8. deterministic context packing under token and per-source caps
+9. context compression to keep the most relevant sentence-level evidence
+10. answer generation grounded in packed retrieved context, with bounded conversation context and explicit safety instructions
 
 ### Why each component exists
 
@@ -105,14 +108,19 @@ Datasets already in the repo:
 - `datasets/citation-tests.jsonl` - citation / grounding checks
 - `datasets/red-flag-cases.jsonl` - urgent escalation behavior
 - `datasets/triage-cases.jsonl` - topic coverage, uncertainty language, and triage expectations
+- `datasets/vague-query-cases.jsonl` - adaptive clarification behavior for underspecified prompts
+- `datasets/off-topic-cases.jsonl` - scope boundaries for non-MSK, diagnosis, and medication prompts
+- `datasets/multi-turn-cases.jsonl` - follow-up behavior and contextual clarification controls
+- `datasets/unsupported-claim-cases.jsonl` - prompts that pressure diagnosis certainty, treatment prescription, or false reassurance
 
 The production runner auto-detects these dataset types and reports:
 
 - `grounding:` required-source citation rate and rule-based claim-support match rate
 - `safety:` red-flag escalation recall, precision, false reassurance rate, critical failures
 - `answer_quality:` topic coverage and required uncertainty pass rate
+- `product_behavior:` zero-cost local checks for safety-gate, clarification, scope boundary, diagnosis-boundary, and treatment-boundary behavior
 
-These are still automated rule-based checks, not clinician review. The repo says that plainly and keeps clinician review as `not_evaluated` until a human rubric is applied.
+These are still automated rule-based checks, not clinician review. Dry-run reports keep true `safety` metrics separate from `product_behavior`, include `response_source`, and keep answer-text boundary checks `not_evaluated` when no local response was generated.
 
 ## Observability
 
@@ -126,11 +134,12 @@ Live API and streaming metadata include:
 - prompt, output, context, and question token counts
 - category and category label
 - refined query
+- triage level and safety-gate metadata
 - reranker mode and `reranker_top_n`
 - `config_source` showing whether defaults or request overrides were used
 - streaming `complete`, `error`, and `request_id` fields for failed/incomplete runs
 
-The frontend telemetry panel currently renders a subset (retrieval/generation/total timing, prompt/output tokens, confidence, reranker mode, category, refined query), while the backend and eval artifacts carry the full metadata family.
+The frontend now exposes expandable source details, a `Why this answer?` panel, triage/safety metadata, and local-only feedback buttons. The backend and eval artifacts carry the full metadata family.
 
 Concrete examples are documented in `docs/observability.md`.
 
@@ -160,7 +169,7 @@ Browser -> Vercel static frontend -> Render FastAPI backend -> ChromaDB + OpenAI
 - `frontend/` on Vercel: static chat interface with SSE streaming and telemetry display
 - `backend/main.py` on Render: `/health`, `/ask`, `/ask/stream`, `/history`
 - `chroma_store/`: committed persistent Chroma collection used at runtime
-- optional Supabase-backed auth and conversation persistence (JWT auth for `/history`)
+- optional backend Supabase auth/history endpoints for future use; the visible frontend is guest-only and does not expose saved history
 
 ### Live links
 
@@ -175,6 +184,7 @@ Browser -> Vercel static frontend -> Render FastAPI backend -> ChromaDB + OpenAI
 - per-IP rate limit: `5 requests / 60s`
 - public request overrides restricted to reranker toggles only
 - proxy-aware client IP handling is supported when trusted proxy settings are configured
+- deterministic red-flag gate returns urgent in-person evaluation guidance before normal RAG when high-risk symptom patterns are detected
 
 That allowlist matters: it keeps retrieval and token-budget behavior server-owned while still allowing controlled ablation of reranker settings.
 
@@ -259,10 +269,22 @@ python scripts/run_eval_production.py --max-cases 10 --price-input-per-1k 0.001 
 # 3) citation / grounding checks
 python scripts/run_eval_production.py --dataset datasets/citation-tests.jsonl --max-cases 3
 
-# 4) red-flag safety checks
-python scripts/run_eval_production.py --dataset datasets/red-flag-cases.jsonl --max-cases 3
+# 4) zero-cost red-flag safety-gate checks
+python scripts/run_eval_production.py --dataset datasets/red-flag-cases.jsonl --dry-run --max-cases 50
 
-# 5) triage answer-quality checks
+# 5) vague-query clarification checks
+python scripts/run_eval_production.py --dataset datasets/vague-query-cases.jsonl --dry-run --max-cases 25
+
+# 6) off-topic / diagnosis / medication boundary checks
+python scripts/run_eval_production.py --dataset datasets/off-topic-cases.jsonl --dry-run --max-cases 25
+
+# 7) multi-turn local behavior checks
+python scripts/run_eval_production.py --dataset datasets/multi-turn-cases.jsonl --dry-run --max-cases 10
+
+# 8) unsupported-claim pressure checks
+python scripts/run_eval_production.py --dataset datasets/unsupported-claim-cases.jsonl --dry-run --max-cases 10
+
+# 9) triage answer-quality checks with model calls
 python scripts/run_eval_production.py --dataset datasets/triage-cases.jsonl --max-cases 3
 ```
 
@@ -270,6 +292,9 @@ python scripts/run_eval_production.py --dataset datasets/triage-cases.jsonl --ma
 
 - retrieval evidence is stronger than clinician-reviewed answer evidence
 - answer grounding and safety checks are now explicit, but still rule-based proxies rather than human adjudication
+- the visible product is intentionally guest-only while local safety and answer quality mature
+- zero-cost `product_behavior` evals measure deterministic local gates only; they do not replace clinician review or answer-level semantic validation
+- dry-run `safety` metrics remain `not_evaluated`; local safety-gate checks live under `product_behavior`
 - the checked-in reranker ablation is negative; the current evidence does not justify turning it on by default
 - this is a narrow-domain educational system, not a diagnosis engine or generalized medical assistant
 

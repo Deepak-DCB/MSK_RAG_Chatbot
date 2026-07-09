@@ -461,6 +461,26 @@
 
     <!-- Input Area -->
     <div class="input-area">
+      <!-- Optional bring-your-own OpenAI key panel -->
+      <div class="key-panel" id="api-key-panel" hidden>
+        <div class="key-panel-row">
+          <input type="password" id="api-key-input" placeholder="sk-…" autocomplete="off"
+            spellcheck="false" aria-label="Your OpenAI API key" />
+          <button type="button" class="key-action" id="api-key-save">Use key</button>
+          <button type="button" class="key-action key-action-ghost" id="api-key-clear">Clear</button>
+        </div>
+        <label class="key-remember">
+          <input type="checkbox" id="api-key-remember" />
+          <span>Remember on this device</span>
+        </label>
+        <p class="key-disclaimer">
+          Your key is sent to this app's backend to make OpenAI calls for your questions only.
+          It is <strong>not stored on the server and not logged</strong>. By default it is kept
+          only for this browser tab; “Remember on this device” also saves it in this browser's
+          local storage. Clear it any time.
+        </p>
+        <p class="key-status" id="api-key-status" aria-live="polite"></p>
+      </div>
       <div class="composer">
         <textarea id="user-input" placeholder="Describe where it hurts, what it feels like, and when it happens…"
           rows="1"></textarea>
@@ -470,6 +490,9 @@
             <span class="mode-name">Mechanics Study</span>
           </label>
           <span class="mode-hint">Article interpretation only, not diagnosis or treatment planning.</span>
+          <button type="button" class="key-btn" id="api-key-btn" title="Use your own OpenAI API key">
+            🔑 <span id="api-key-btn-label">API key</span>
+          </button>
           <button class="send-btn" id="send-btn" aria-label="Send">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">

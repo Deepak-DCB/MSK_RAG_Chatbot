@@ -20,6 +20,92 @@ const REQUEST_CONFIG = {
     reranker_top_n: 10,
 };
 
+// ── Bring-your-own OpenAI key (optional, gated) ──────────────────────────────
+// Held in memory for the request; by default only for this browser tab
+// (sessionStorage). "Remember on this device" additionally saves it to localStorage.
+// The key IS sent to the backend to make OpenAI calls for the user's own requests.
+const API_KEY_STORAGE = "msk_openai_key";
+let userApiKey = null;
+
+function buildRequestConfig() {
+    return userApiKey ? { ...REQUEST_CONFIG, api_key: userApiKey } : REQUEST_CONFIG;
+}
+
+function setupApiKeyPanel() {
+    const btn = document.getElementById("api-key-btn");
+    const panel = document.getElementById("api-key-panel");
+    const input = document.getElementById("api-key-input");
+    const remember = document.getElementById("api-key-remember");
+    const saveBtn = document.getElementById("api-key-save");
+    const clearBtn = document.getElementById("api-key-clear");
+    const status = document.getElementById("api-key-status");
+    const btnLabel = document.getElementById("api-key-btn-label");
+    if (!btn || !panel) return;
+
+    function reflectKeyState() {
+        const active = Boolean(userApiKey);
+        btn.classList.toggle("key-active", active);
+        if (btnLabel) btnLabel.textContent = active ? "Key set" : "API key";
+        if (status) status.textContent = active ? "Your key is active in this browser." : "";
+    }
+
+    // Restore a previously entered key (localStorage takes precedence — it means the
+    // user chose to remember it).
+    const persisted = localStorage.getItem(API_KEY_STORAGE);
+    const stored = persisted || sessionStorage.getItem(API_KEY_STORAGE);
+    if (stored) {
+        userApiKey = stored;
+        if (remember) remember.checked = Boolean(persisted);
+    }
+    reflectKeyState();
+
+    btn.addEventListener("click", () => {
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden && input) input.focus();
+    });
+
+    saveBtn.addEventListener("click", () => {
+        const val = (input.value || "").trim();
+        if (!val) { if (status) status.textContent = "Enter a key first."; return; }
+        userApiKey = val;
+        sessionStorage.setItem(API_KEY_STORAGE, val);
+        if (remember && remember.checked) localStorage.setItem(API_KEY_STORAGE, val);
+        else localStorage.removeItem(API_KEY_STORAGE);
+        input.value = "";
+        reflectKeyState();
+        panel.hidden = true;
+    });
+
+    clearBtn.addEventListener("click", () => {
+        userApiKey = null;
+        if (input) input.value = "";
+        sessionStorage.removeItem(API_KEY_STORAGE);
+        localStorage.removeItem(API_KEY_STORAGE);
+        reflectKeyState();
+        if (status) status.textContent = "Key cleared.";
+    });
+}
+
+function openApiKeyPanel() {
+    const panel = document.getElementById("api-key-panel");
+    const input = document.getElementById("api-key-input");
+    if (panel) {
+        panel.hidden = false;
+        if (input) input.focus();
+    }
+}
+
+// Render an "API key unavailable" error with a call-to-action to add a personal key.
+function renderApiKeyError(bubble, message, requestIdNote) {
+    const msg = (typeof message === "string" && message) ||
+        "The service's shared API key is currently unavailable or out of quota.";
+    bubble.innerHTML = `<p>⚠️ ${escapeHtml(msg)}</p>` +
+        `<p><button type="button" class="key-action key-cta">Add your OpenAI key</button></p>` +
+        (requestIdNote || "");
+    const cta = bubble.querySelector(".key-cta");
+    if (cta) cta.addEventListener("click", openApiKeyPanel);
+}
+
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const chatArea = document.getElementById("chat-area");
 const textarea = document.getElementById("user-input");
@@ -81,6 +167,7 @@ async function init() {
     checkHealth();
     bindChips();
     setupGuestMode();
+    setupApiKeyPanel();
     bindAuth();
 
     // Landing page deep links: chat.html?q=... prefills the composer
@@ -422,13 +509,21 @@ async function sendQuestion() {
             body: JSON.stringify({
                 question,
                 history: history.slice(-10),
-                config: REQUEST_CONFIG,
+                config: buildRequestConfig(),
             }),
         });
 
         if (!res.ok) {
             const err = await res.json().catch(() => ({ detail: res.statusText }));
-            bubble.innerHTML = `<p>⚠️ ${escapeHtml(err.detail || "Something went wrong.")}</p>`;
+            const detail = err.detail;
+            const isObj = detail && typeof detail === "object";
+            const code = isObj ? detail.error_code : null;
+            const message = isObj ? detail.message : detail;
+            if (code === "api_key_unavailable") {
+                renderApiKeyError(bubble, message, "");
+            } else {
+                bubble.innerHTML = `<p>⚠️ ${escapeHtml((typeof message === "string" && message) || "Something went wrong.")}</p>`;
+            }
             return;
         }
 
@@ -475,9 +570,12 @@ async function sendQuestion() {
             ? `<br><small>request_id: ${escapeHtml(streamMeta.request_id)}</small>`
             : "";
 
+        const errorCode = streamMeta && streamMeta.error_code;
         const typingEl = bubble.querySelector(".typing-indicator");
         if (typingEl) {
-            if (!isComplete) {
+            if (errorCode === "api_key_unavailable") {
+                renderApiKeyError(bubble, streamMeta && streamMeta.error, requestIdNote);
+            } else if (!isComplete) {
                 bubble.innerHTML = `<p>⚠️ ${escapeHtml((streamMeta && streamMeta.error) || "Response interrupted before completion.")}${requestIdNote}</p>`;
             } else if (assistantText) {
                 bubble.innerHTML = renderMarkdown(fullText);
@@ -608,7 +706,15 @@ async function sendMechanicsStudyQuestion(question, bubble) {
 
         if (!res.ok) {
             const err = await res.json().catch(() => ({ detail: res.statusText }));
-            bubble.innerHTML = `<p>⚠️ ${escapeHtml(err.detail || "Something went wrong.")}</p>`;
+            const detail = err.detail;
+            const isObj = detail && typeof detail === "object";
+            const code = isObj ? detail.error_code : null;
+            const message = isObj ? detail.message : detail;
+            if (code === "api_key_unavailable") {
+                renderApiKeyError(bubble, message, "");
+            } else {
+                bubble.innerHTML = `<p>⚠️ ${escapeHtml((typeof message === "string" && message) || "Something went wrong.")}</p>`;
+            }
             return;
         }
 
@@ -769,6 +875,18 @@ function appendTelemetry(bubble, meta, endToEnd) {
     const rrMode = meta.reranker_mode || (meta.use_reranker ? "per_source" : "off");
     const confClass = conf >= 0.5 ? "confidence-high" : conf >= 0.3 ? "confidence-mid" : "confidence-low";
 
+    // Answer/retrieval mode badges — highlighted amber when running on a fallback path.
+    const answerMode = meta.answer_mode;
+    const retrievalMode = meta.retrieval_mode;
+    const answerDegraded = answerMode && answerMode !== "llm:openai" && answerMode !== "disabled";
+    const retrievalDegraded = retrievalMode && retrievalMode !== "hybrid";
+    const answerBadge = answerMode
+        ? `<span class="stat-badge ${answerDegraded ? "mode-degraded" : ""}">Answer ${escapeHtml(answerMode)}</span>`
+        : "";
+    const retrievalBadge = retrievalDegraded
+        ? `<span class="stat-badge mode-degraded">Retrieval ${escapeHtml(retrievalMode)}</span>`
+        : "";
+
     const toggleBtn = document.createElement("div");
     toggleBtn.className = "telemetry-toggle";
     toggleBtn.textContent = "Why this answer?";
@@ -787,6 +905,8 @@ function appendTelemetry(bubble, meta, endToEnd) {
         <span class="stat-badge">Prompt ${meta.prompt_tokens || 0}</span>
         <span class="stat-badge">Output ${meta.output_tokens || 0}</span>
         <span class="stat-badge ${confClass}">Confidence ${conf.toFixed(2)}</span>
+        ${answerBadge}
+        ${retrievalBadge}
     </div>`;
 
     if (meta.category || meta.refined_query || meta.triage_level || meta.safety_gate_triggered) {

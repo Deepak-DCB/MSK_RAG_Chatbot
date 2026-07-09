@@ -1070,6 +1070,14 @@ button {
     background: var(--red-bg);
 }
 
+/* Degraded / fallback mode (BM25-only retrieval, evidence-only or free-provider
+   generation). Amber to signal "working, but not the full-quality path". */
+.stat-badge.mode-degraded {
+    border-color: var(--amber-line);
+    color: var(--amber);
+    background: var(--amber-bg);
+}
+
 .telemetry-detail {
     margin-top: 0.4rem;
     padding-top: 0.4rem;
@@ -1180,6 +1188,85 @@ button {
     margin-top: 0.5rem;
     padding-top: 0.5rem;
     border-top: 1px solid var(--line-soft);
+}
+
+/* Bring-your-own-key controls */
+.key-btn {
+    margin-left: auto;
+    padding: 0.28rem 0.6rem;
+    font-size: 0.72rem;
+    color: var(--ink-2);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-full);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.key-btn:hover { color: var(--ink); border-color: var(--line-strong, var(--line)); }
+.key-btn.key-active { color: var(--green); border-color: var(--green-line); background: var(--green-bg); }
+
+.key-panel {
+    margin-bottom: 0.6rem;
+    padding: 0.7rem 0.8rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md, 10px);
+}
+
+.key-panel-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.key-panel-row input[type="password"] {
+    flex: 1 1 220px;
+    min-width: 0;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    color: var(--ink);
+    background: var(--bg, var(--surface));
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm, 8px);
+}
+
+.key-action {
+    padding: 0.4rem 0.7rem;
+    font-size: 0.78rem;
+    color: var(--ink);
+    background: var(--accent-bg, var(--surface));
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm, 8px);
+    cursor: pointer;
+}
+
+.key-action-ghost { color: var(--ink-2); }
+.key-action:hover { border-color: var(--green-line); }
+
+.key-remember {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+    font-size: 0.76rem;
+    color: var(--ink-2);
+    cursor: pointer;
+}
+
+.key-disclaimer {
+    margin: 0.5rem 0 0;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--ink-3, var(--ink-2));
+}
+
+.key-status {
+    margin: 0.4rem 0 0;
+    font-size: 0.74rem;
+    color: var(--green);
+    min-height: 1em;
 }
 
 /* Mechanics Study — real mode switch */

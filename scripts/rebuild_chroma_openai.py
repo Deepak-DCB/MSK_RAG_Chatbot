@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 rebuild_chroma_openai.py — One-time script to rebuild chroma_store
-using OpenAI text-embedding-3-small (1536-dim) embeddings.
+using OpenAI text-embedding-3-large (3072-dim) embeddings.
 
 Usage:
     python scripts/rebuild_chroma_openai.py

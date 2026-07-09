@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-run_eval.py — Quick retrieval evaluation using the production pipeline.
+run_eval.py — Legacy quick retrieval-only evaluation.
 
-Runs gold set queries through qaEngine.run_qa() (without generation)
-and measures Hit@K, MRR, and retrieval confidence.
+Runs gold set queries through qaEngine.run_qa() without answer generation and
+reports coarse retrieval metrics.
 
-Usage:
-    python scripts/run_eval.py
+Use scripts/run_eval_production.py for the canonical production-faithful runner,
+artifact generation, and answer-level grounding / safety checks.
 """
 
 import json
@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "VectorDB"))
 from qaEngine import run_qa, QAConfig
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-GOLD_PATH = PROJECT_ROOT / "Eval" / "gold_set_merged_for_eval.jsonl"
+GOLD_PATH = PROJECT_ROOT / "Eval" / "gold_set_v2.jsonl"
 
 TOP_KS = [1, 3, 5]
 

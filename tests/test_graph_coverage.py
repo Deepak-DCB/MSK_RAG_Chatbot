@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT / "VectorDB") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "VectorDB"))
+
+from graph_retrieval import build_graph_context
+
+
+def read_cases():
+    path = PROJECT_ROOT / "datasets" / "graph-coverage-cases.jsonl"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_round_b_non_tos_coverage_cases_find_expected_nodes_and_paths():
+    for case in read_cases():
+        pack = build_graph_context(case["question"], max_graph_tokens=900)
+        assert pack["available"] is True, case["case_id"]
+        assert pack.get("fallback_reason") is None, case["case_id"]
+
+        node_names = {node.get("canonical_name") for node in pack.get("nodes", [])}
+        missing = [name for name in case.get("expected_nodes", []) if name not in node_names]
+        assert not missing, f"{case['case_id']} missing nodes: {missing}; got {sorted(node_names)}"
+
+        forbidden = [name for name in case.get("forbidden_nodes", []) if name in node_names]
+        assert not forbidden, f"{case['case_id']} forbidden nodes present: {forbidden}"
+
+        path_text = "\n".join(path.get("path_text", "") for path in pack.get("paths", [])).lower()
+        for term in case.get("expected_path_terms", []):
+            assert term.lower() in path_text, f"{case['case_id']} missing path term {term!r}; paths={path_text!r}"
+
+        expected_policy = case.get("expected_policy")
+        if expected_policy:
+            matching_paths = [
+                path for path in pack.get("paths", [])
+                if all(term.lower() in path.get("path_text", "").lower() for term in case.get("expected_path_terms", [])[:1])
+            ] or pack.get("paths", [])
+            policies = {path.get("clinical_policy") for path in matching_paths}
+            assert expected_policy in policies, f"{case['case_id']} expected policy {expected_policy}; got {policies}"
+
+
+def test_round_b_weak_paths_remain_conservative():
+    conservative_policies = {
+        "do_not_present_as_causal_conclusion",
+        "requires_differential_screening",
+        "requires_red_flag_screening",
+    }
+    for case in read_cases():
+        pack = build_graph_context(case["question"], max_graph_tokens=900)
+        for path in pack.get("paths", []):
+            if path.get("weakest_support_level") in {"weak", "inferred_from_same_section", "inferred_from_path", "unsupported"}:
+                assert path.get("clinical_policy") in conservative_policies
