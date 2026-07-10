@@ -366,7 +366,11 @@ class QAConfig:
     generation_provider: Optional[str] = None
     generation_model: Optional[str] = None
 
-    use_reranker: bool = True
+    # OFF by default: ablation shows the LLM reranker collapses Hit@5 from 94% to
+    # 38% (see CLAUDE.md). Every production path (backend, frontend) and the eval/CLI
+    # harnesses already force this off; the default matches that intent so a bare
+    # QAConfig() / agentic_run(question) call can't silently enable the bad path.
+    use_reranker: bool = False
     reranker_top_n: int = 10
 
     include_history: bool = False
