@@ -9,6 +9,9 @@ const sbClient = null;
 
 // ── State ────────────────────────────────────────────────────────────────────
 let history = [];
+// Rolling conversation summary maintained by the backend and carried here between
+// turns (the server is stateless). Keeps the chat coherent beyond the raw-history window.
+let conversationSummary = null;
 let isLoading = false;
 let currentUser = null;
 let accessToken = null;
@@ -446,6 +449,7 @@ function bindAuth() {
 function startNewChat() {
     // Clear current conversation
     history = [];
+    conversationSummary = null;
     chatArea.querySelectorAll(".message").forEach(el => el.remove());
     welcomeScreen.style.display = "";
     welcomeScreen.classList.remove("hidden");
@@ -629,6 +633,7 @@ async function sendQuestion() {
             body: JSON.stringify({
                 question,
                 history: history.slice(-10),
+                conversation_summary: conversationSummary,
                 config: buildRequestConfig(),
             }),
         });
@@ -726,6 +731,9 @@ async function sendQuestion() {
         if (isComplete && !hasStreamError && assistantText) {
             history.push({ role: "user", content: question });
             history.push({ role: "assistant", content: fullText });
+            if (streamMeta && typeof streamMeta.conversation_summary === "string" && streamMeta.conversation_summary) {
+                conversationSummary = streamMeta.conversation_summary;
+            }
         }
 
     } catch (err) {

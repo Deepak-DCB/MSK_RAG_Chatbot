@@ -74,6 +74,7 @@ app.add_middleware(
 # ── Safety constants ──────────────────────────────────────────────────────────
 MAX_QUESTION_LEN = 1000
 MAX_HISTORY_TURNS = 5
+MAX_SUMMARY_LEN = 2500  # rolling conversation summary (client-supplied, truncated)
 MAX_OUTPUT_TOKENS = 1000
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX = 5      # requests per window per IP
@@ -291,6 +292,9 @@ def startup_load():
 class AskRequest(BaseModel):
     question: str = Field(..., max_length=MAX_QUESTION_LEN)
     history: Optional[List[Dict[str, str]]] = Field(default=None)
+    # Rolling conversation summary, carried by the client between turns (the server
+    # is stateless). Produced by the pipeline, echoed back in telemetry.
+    conversation_summary: Optional[str] = Field(default=None)
     config: Optional[Dict[str, Any]] = Field(default=None)
 
 
@@ -310,6 +314,7 @@ class AskResponse(BaseModel):
     answer_mode: Optional[str] = None
     retrieval_mode: Optional[str] = None
     query_processing_degraded: bool = False
+    conversation_summary: Optional[str] = None
     reranker_mode: str
     use_reranker: bool
     reranker_top_n: int
@@ -656,10 +661,12 @@ def ask(req: AskRequest, request: Request):
 
     # MAX_HISTORY_TURNS is a cap on user+assistant *pairs*, so keep 2 messages per turn.
     history = req.history[-(MAX_HISTORY_TURNS * 2):] if req.history else None
+    conversation_summary = (req.conversation_summary or "").strip()[:MAX_SUMMARY_LEN] or None
     cfg, cfg_meta = _build_config(req.config)
 
     try:
-        res = agentic_run(question, cfg=cfg, history=history)
+        res = agentic_run(question, cfg=cfg, history=history,
+                          conversation_summary=conversation_summary)
     except OpenAIKeyError as exc:
         # Expected, non-crash condition: shared key missing / invalid / out of quota.
         logger.warning("ask: OpenAI key unavailable [request_id=%s] code=%s", request_id, exc.code)
@@ -691,6 +698,7 @@ def ask(req: AskRequest, request: Request):
         answer_mode=res.get("answer_mode"),
         retrieval_mode=res.get("retrieval_mode"),
         query_processing_degraded=bool(res.get("query_processing_degraded", False)),
+        conversation_summary=res.get("conversation_summary"),
         reranker_mode=cfg_meta["reranker_mode"],
         use_reranker=cfg_meta["use_reranker"],
         reranker_top_n=cfg_meta["reranker_top_n"],
@@ -819,6 +827,7 @@ def ask_stream(req: AskRequest, request: Request,
 
     # MAX_HISTORY_TURNS is a cap on user+assistant *pairs*, so keep 2 messages per turn.
     history = req.history[-(MAX_HISTORY_TURNS * 2):] if req.history else None
+    conversation_summary = (req.conversation_summary or "").strip()[:MAX_SUMMARY_LEN] or None
     cfg, cfg_meta = _build_config(req.config)
 
     token_q: queue.Queue = queue.Queue()
@@ -829,7 +838,8 @@ def ask_stream(req: AskRequest, request: Request,
 
     def run_engine():
         try:
-            res = agentic_run(question, cfg=cfg, history=history, on_token=on_token)
+            res = agentic_run(question, cfg=cfg, history=history, on_token=on_token,
+                              conversation_summary=conversation_summary)
             result_holder.update(res)
         except OpenAIKeyError as exc:
             logger.warning("ask_stream: OpenAI key unavailable [request_id=%s] code=%s", request_id, exc.code)
@@ -878,6 +888,7 @@ def ask_stream(req: AskRequest, request: Request,
             "answer_mode": result_holder.get("answer_mode"),
             "retrieval_mode": result_holder.get("retrieval_mode"),
             "query_processing_degraded": bool(result_holder.get("query_processing_degraded", False)),
+            "conversation_summary": result_holder.get("conversation_summary"),
             "reranker_mode": cfg_meta["reranker_mode"],
             "use_reranker": cfg_meta["use_reranker"],
             "reranker_top_n": cfg_meta["reranker_top_n"],

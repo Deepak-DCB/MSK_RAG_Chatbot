@@ -1541,7 +1541,8 @@ def build_context_pack(
     )
 
 
-def build_prompt(question: str, context: List[Dict[str, Any]], history=None, context_pack: Optional[ContextPack] = None) -> str:
+def build_prompt(question: str, context: List[Dict[str, Any]], history=None, context_pack: Optional[ContextPack] = None,
+                 conversation_summary: Optional[str] = None) -> str:
     ctx_block = context_pack.formatted_context if context_pack else format_context_block(context)
     graph_instructions = ""
     if context_pack and context_pack.graph_available and context_pack.graph_context_strategy != "off":
@@ -1591,12 +1592,22 @@ def build_prompt(question: str, context: List[Dict[str, Any]], history=None, con
         - Keep the answer concise.
         """
 
+    # Rolling summary of the conversation so far. Raw history is also injected into
+    # the messages array, but it is truncated; the summary preserves what was
+    # established earlier (region, pattern, advice given) beyond that window.
+    summary_section = ""
+    if conversation_summary:
+        summary_section = f"""
+        CONVERSATION SUMMARY (what has been established earlier in this conversation; use it to stay consistent and resolve references — do not repeat it back to the user):
+        {conversation_summary}
+        """
+
     return textwrap.dedent(f"""
         CONTEXT (internal, do not describe it explicitly to the user):
         ---
         {ctx_block}
         ---
-
+        {summary_section}
         Now answer the user's original question clearly and concisely as one integrated explanation.
         Use the retrieved context and evidence spans only as support. Do not answer a rewritten search query if it differs from the user's wording.
         {graph_instructions}
@@ -1661,7 +1672,8 @@ def classify_query(user_q: str, model: str, history=None) -> str:
     return match.group(1) if match else "D"
 
 
-def rewrite_query(user_q: str, category: str, openai_model: str, history=None) -> str:
+def rewrite_query(user_q: str, category: str, openai_model: str, history=None,
+                  conversation_summary: Optional[str] = None) -> str:
     """
     Rewrite the query into an MSK-biomechanics-optimized form
     based on classification category A/B/C/D.
@@ -1686,9 +1698,16 @@ def rewrite_query(user_q: str, category: str, openai_model: str, history=None) -
         history_block = f"""\nRecent conversation (use to resolve pronouns like 'it', 'that', 'this'):
 {conv_context}\n"""
 
+    # The rolling summary covers what raw history may have already truncated away:
+    # the body region, the pattern under discussion, and advice already given.
+    summary_block = ""
+    if conversation_summary:
+        summary_block = f"""\nConversation summary so far (use to resolve vague references):
+{conversation_summary[:800]}\n"""
+
     prompt = f"""
 Rewrite the user's query into a more detailed MSK biomechanics retrieval query.
-{history_block}
+{summary_block}{history_block}
 Original:
 "{user_q}"
 
@@ -2102,6 +2121,7 @@ def agentic_run(
     cfg: Optional[QAConfig] = None,
     history=None,
     on_token = None,
+    conversation_summary: Optional[str] = None,
 ):
     """Public entry point. Binds any per-request BYO OpenAI key for the duration of
     the request (inside this thread) and always unbinds it afterwards, so a
@@ -2109,7 +2129,10 @@ def agentic_run(
     cfg = cfg or QAConfig()
     key_token = _request_api_key.set(cfg.api_key or None)
     try:
-        return _agentic_run_impl(question, cfg, history=history, on_token=on_token)
+        return _agentic_run_impl(
+            question, cfg, history=history, on_token=on_token,
+            conversation_summary=conversation_summary,
+        )
     finally:
         _request_api_key.reset(key_token)
 
@@ -2119,13 +2142,20 @@ def _agentic_run_impl(
     cfg: Optional[QAConfig] = None,
     history=None,
     on_token = None,
+    conversation_summary: Optional[str] = None,
 ):
     cfg = cfg or QAConfig()
+
+    # The rolling summary is client-supplied; cap it defensively before use.
+    conversation_summary = (conversation_summary or "").strip()[:2500] or None
 
     # Step -1: local zero-cost gates before retrieval/generation.
     preflight = local_preflight(question, history=history)
     if preflight["action"] == "respond":
         result = preflight["result"]
+        # Static responses (red flag / scope / clarification) are not folded into
+        # the rolling summary; the client keeps what it had.
+        result["conversation_summary"] = conversation_summary
         if on_token:
             on_token(result["answer"])
         return result
@@ -2146,7 +2176,8 @@ def _agentic_run_impl(
 
     # Step 2: rewrite for retrieval (with history for context-aware rewriting)
     try:
-        refined_q = rewrite_query(question, category, RERANKER_MODEL, history=history)
+        refined_q = rewrite_query(question, category, RERANKER_MODEL, history=history,
+                                  conversation_summary=conversation_summary)
     except Exception as exc:
         query_processing_degraded = True
         refined_q = question  # fall back to the original user question
@@ -2157,9 +2188,25 @@ def _agentic_run_impl(
     # Step 3: run run_qa() but forward history correctly. The rewritten query is
     # used for retrieval; generation answers the original user question by default.
     if history:
-        res = run_qa(refined_q, config=cfg, on_token=on_token, history=history, generation_question=generation_question)
+        res = run_qa(refined_q, config=cfg, on_token=on_token, history=history,
+                     generation_question=generation_question,
+                     conversation_summary=conversation_summary)
     else:
-        res = run_qa(refined_q, config=cfg, on_token=on_token, generation_question=generation_question)
+        res = run_qa(refined_q, config=cfg, on_token=on_token,
+                     generation_question=generation_question,
+                     conversation_summary=conversation_summary)
+
+    # Step 4: fold this exchange into the rolling summary for the next turn.
+    # Best-effort: only after a real LLM answer (if generation degraded, the utility
+    # model is likely down too), and never fatal — the previous summary is kept.
+    new_summary = conversation_summary
+    if str(res.get("answer_mode", "")).startswith("llm:") and res.get("answer"):
+        try:
+            new_summary = summarize_conversation(conversation_summary, question, res["answer"])
+        except Exception as exc:
+            logger.warning("summarize_conversation failed (%s: %s); keeping previous summary",
+                           type(exc).__name__, exc)
+    res["conversation_summary"] = new_summary
 
     res["category"] = category
     res["category_label"] = CATEGORY_LABELS.get(category, "Unknown")
@@ -2171,6 +2218,53 @@ def _agentic_run_impl(
     res.setdefault("safety_gate_reasons", [])
     return res
 
+
+
+def summarize_conversation(prev_summary: Optional[str], user_q: str, answer: str,
+                           model: str = RERANKER_MODEL) -> Optional[str]:
+    """Fold the latest exchange into a compact rolling conversation summary.
+
+    The summary is carried by the client between turns (the backend is stateless),
+    injected into the rewriter and the generation prompt, and lets the conversation
+    stay coherent beyond the raw-history window. Uses the cheap utility model; the
+    caller is expected to treat failures as non-fatal and keep the previous summary.
+    """
+    prev = (prev_summary or "").strip()[:1500]
+    q = (user_q or "").strip()[:500]
+    a = (answer or "").strip()[:1500]
+    if not q or not a:
+        return prev_summary
+
+    prev_block = prev if prev else "(none — this is the first exchange)"
+    prompt = f"""
+Maintain a rolling summary of an MSK biomechanics triage conversation.
+
+Current summary:
+{prev_block}
+
+Latest exchange:
+User: {q}
+Assistant: {a}
+
+Update the summary to include the latest exchange. Keep it under 120 words. Capture, when present:
+- body region(s) and symptoms the user described
+- the biomechanical pattern or mechanism identified
+- advice or corrections already given
+- anything the user was asked to clarify or is still deciding
+
+Write plain prose (no headers, no bullets). Do not add information that is not in the summary or the exchange. Return ONLY the summary text.
+""".strip()
+
+    summary, _, _ = ask_openai_llm(
+        prompt,
+        model=model,
+        num_predict=220,
+        system_prompt=UTILITY_SYSTEM_PROMPT,
+        temperature=UTILITY_TEMPERATURE,
+        top_p=UTILITY_TOP_P,
+    )
+    summary = " ".join((summary or "").split()).strip()
+    return summary[:2000] or prev_summary
 
 
 def _truncate_history(history, max_turns=5, max_chars_user=800,
@@ -2720,6 +2814,7 @@ def run_qa(
     on_token: Optional[Callable[[str], None]] = None,
     history: Optional[List[Dict[str, str]]] = None,
     generation_question: Optional[str] = None,
+    conversation_summary: Optional[str] = None,
 ) -> Dict[str, Any]:
     cfg = config or QAConfig()
     answer_question = generation_question or question
@@ -2895,7 +2990,8 @@ def run_qa(
     context_pack = build_context_pack(context, question, cfg)
 
     # prompt + generation
-    prompt = build_prompt(answer_question, context, history=history, context_pack=context_pack)
+    prompt = build_prompt(answer_question, context, history=history, context_pack=context_pack,
+                          conversation_summary=conversation_summary)
     context_tokens = context_pack.token_estimate
     question_tokens = count_tokens(answer_question)
 
