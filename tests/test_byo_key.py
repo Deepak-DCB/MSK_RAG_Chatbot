@@ -99,7 +99,7 @@ def test_request_key_builds_ephemeral_client_and_resets(monkeypatch):
 def test_agentic_run_binds_and_unbinds_key(monkeypatch):
     seen = {}
 
-    def _fake_impl(question, cfg=None, history=None, on_token=None):
+    def _fake_impl(question, cfg=None, history=None, on_token=None, conversation_summary=None):
         seen["during"] = qaEngine._request_api_key.get()
         return {"answer": "ok"}
 
