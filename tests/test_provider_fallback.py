@@ -207,6 +207,50 @@ def test_fallback_to_evidence_only_when_all_providers_fail(monkeypatch):
     assert "in-person" in text.lower()
 
 
+def test_empty_openai_answer_degrades_to_evidence_only(monkeypatch):
+    # OpenAI returns HTTP 200 with empty content (e.g. a reasoning model that
+    # spent its whole budget) and streams zero tokens. This must NOT surface as a
+    # dead "No response received" bubble — it degrades to the evidence-only answer.
+    def _empty_ok(prompt, model, num_predict, on_token=None, history=None, **k):
+        return "", 5, 0  # success, but no content, no tokens emitted
+    monkeypatch.setattr(qaEngine, "ask_openai_llm", _empty_ok)
+    monkeypatch.setattr(qaEngine, "_configured_providers", lambda: [])
+
+    got = []
+    text, pt, ot, mode, model = qaEngine.generate_answer_with_fallback(
+        "prompt", _Cfg(), context=[], context_pack=None, question="q", on_token=got.append,
+    )
+    assert mode == "evidence_only"
+    assert model is None
+    assert text.strip()          # never empty
+    assert "".join(got).strip()  # something was streamed to the client
+    assert "in-person" in text.lower()
+
+
+def test_empty_provider_answer_falls_through_to_next(monkeypatch):
+    # OpenAI empty -> first free provider empty -> second provider answers.
+    monkeypatch.setattr(qaEngine, "ask_openai_llm", lambda *a, **k: ("", 5, 0))
+    specs = [
+        qaEngine.ProviderSpec("groq", "u", "k", "m"),
+        qaEngine.ProviderSpec("cerebras", "u", "k", "m2"),
+    ]
+    monkeypatch.setattr(qaEngine, "_configured_providers", lambda: specs)
+
+    def _fake_call(spec, prompt, num_predict, on_token=None, history=None, system_prompt=None):
+        if spec.name == "groq":
+            return "   ", 1, 0  # whitespace-only, zero tokens => empty
+        if on_token:
+            on_token("real answer")
+        return "real answer", 1, 2
+    monkeypatch.setattr(qaEngine, "_call_provider", _fake_call)
+
+    text, pt, ot, mode, model = qaEngine.generate_answer_with_fallback(
+        "prompt", _Cfg(), context=[], context_pack=None, question="q", on_token=lambda t: None,
+    )
+    assert mode == "llm:cerebras"
+    assert text == "real answer"
+
+
 def test_fallback_reraises_if_tokens_already_streamed(monkeypatch):
     # OpenAI emits a token then dies — we must NOT silently switch providers.
     def _partial_then_die(prompt, model, num_predict, on_token=None, history=None, **k):

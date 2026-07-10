@@ -2726,6 +2726,15 @@ def generate_answer_with_fallback(
         if on_token:
             on_token(tok)
 
+    def _empty(text: str) -> bool:
+        # A provider can return HTTP 200 with empty/whitespace content (e.g. a
+        # reasoning model that spends its whole token budget before emitting an
+        # answer). That streams zero tokens and must NOT be treated as a success —
+        # otherwise the client shows a dead "No response received" bubble. Only
+        # meaningful when nothing was streamed yet; a mid-stream truncation still
+        # produced real output for the user.
+        return tokens_emitted == 0 and not (text or "").strip()
+
     def _evidence_only() -> Tuple[str, int, int, str, Optional[str]]:
         text = build_evidence_only_answer(context, context_pack, question)
         if on_token and tokens_emitted == 0:
@@ -2743,7 +2752,10 @@ def generate_answer_with_fallback(
                     prompt, model=model, num_predict=cfg.num_predict,
                     on_token=_tracked, history=history,
                 )
-                return text, pt, ot, "llm:openai", model
+                if _empty(text):
+                    logger.warning("pinned openai model %s returned empty output; using evidence-only", model)
+                else:
+                    return text, pt, ot, "llm:openai", model
             except OpenAIKeyError as exc:
                 if tokens_emitted > 0:
                     raise
@@ -2757,7 +2769,10 @@ def generate_answer_with_fallback(
                     text, pt, ot = _call_provider(
                         spec, prompt, cfg.num_predict, on_token=_tracked, history=history,
                     )
-                    return text, pt, ot, f"llm:{spec.name}", spec.model
+                    if _empty(text):
+                        logger.warning("pinned provider %s returned empty output; using evidence-only", pinned)
+                    else:
+                        return text, pt, ot, f"llm:{spec.name}", spec.model
                 except Exception as exc:
                     if tokens_emitted > 0:
                         raise
@@ -2774,7 +2789,9 @@ def generate_answer_with_fallback(
             prompt, model=cfg.openai_model, num_predict=cfg.num_predict,
             on_token=_tracked, history=history,
         )
-        return text, pt, ot, "llm:openai", cfg.openai_model
+        if not _empty(text):
+            return text, pt, ot, "llm:openai", cfg.openai_model
+        logger.warning("openai generation returned empty output; trying fallback providers")
     except OpenAIKeyError as exc:
         if tokens_emitted > 0:
             raise
@@ -2786,6 +2803,9 @@ def generate_answer_with_fallback(
             text, pt, ot = _call_provider(
                 spec, prompt, cfg.num_predict, on_token=_tracked, history=history,
             )
+            if _empty(text):
+                logger.warning("fallback provider %s returned empty output; trying next", spec.name)
+                continue
             return text, pt, ot, f"llm:{spec.name}", spec.model
         except Exception as exc:
             if tokens_emitted > 0:
