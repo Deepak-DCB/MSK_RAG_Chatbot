@@ -45,11 +45,12 @@ def test_health_reports_collection_readiness(monkeypatch):
 def test_ask_clamps_public_config_and_returns_metadata(monkeypatch):
     seen = {}
 
-    def fake_agentic_run(question, cfg, history=None, on_token=None):
+    def fake_agentic_run(question, cfg, history=None, on_token=None, conversation_summary=None):
         seen["question"] = question
         seen["use_reranker"] = cfg.use_reranker
         seen["reranker_top_n"] = cfg.reranker_top_n
         seen["history"] = history
+        seen["conversation_summary"] = conversation_summary
         return {
             "answer": "Conservative answer grounded in retrieved context.",
             "citations": ["mskneurology.com/how-truly-treat-thoracic-outlet-syndrome/index.html"],
@@ -86,6 +87,7 @@ def test_ask_clamps_public_config_and_returns_metadata(monkeypatch):
         "use_reranker": True,
         "reranker_top_n": 10,
         "history": [{"role": "user", "content": "My shoulder drops."}],
+        "conversation_summary": None,
     }
     assert body["reranker_mode"] == "per_source"
     assert body["config_source"] == "request_override"
@@ -95,8 +97,45 @@ def test_ask_clamps_public_config_and_returns_metadata(monkeypatch):
     assert body["safety_gate_reasons"] == []
 
 
+def test_ask_threads_conversation_summary(monkeypatch):
+    seen = {}
+
+    def fake_agentic_run(question, cfg, history=None, on_token=None, conversation_summary=None):
+        seen["conversation_summary"] = conversation_summary
+        return {
+            "answer": "Follow-up answer.",
+            "citations": [],
+            "retrieval_confidence": 0.4,
+            "retrieval_time": 0.1,
+            "generation_time": 0.5,
+            "prompt_tokens": 50,
+            "output_tokens": 20,
+            "context_tokens": 30,
+            "question_tokens": 5,
+            "conversation_summary": "User has left-sided neck pain; scapular depression pattern discussed.",
+        }
+
+    with make_client(monkeypatch, agentic_run=fake_agentic_run) as client:
+        response = client.post(
+            "/ask",
+            json={
+                "question": "What exercises help?",
+                "conversation_summary": "  User has left-sided neck pain.  ",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    # Whitespace is stripped before the summary reaches the pipeline.
+    assert seen["conversation_summary"] == "User has left-sided neck pain."
+    # The updated summary produced by the pipeline is echoed back in telemetry.
+    assert body["conversation_summary"] == (
+        "User has left-sided neck pain; scapular depression pattern discussed."
+    )
+
+
 def test_stream_done_event_includes_telemetry(monkeypatch):
-    def fake_agentic_run(question, cfg, history=None, on_token=None):
+    def fake_agentic_run(question, cfg, history=None, on_token=None, conversation_summary=None):
         assert cfg.use_reranker is False
         if on_token is not None:
             on_token("Grounded ")
