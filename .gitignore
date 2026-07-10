@@ -68,3 +68,7 @@ goldset_ui/
 # Claude Code local state (settings + leftover worktrees) — never commit
 .claude/
 nul
+
+# Contextual-retrieval side-by-side artifacts (experimental, built on demand)
+/chroma_store_contextual/
+/MSKArticlesINDEX/contextual/

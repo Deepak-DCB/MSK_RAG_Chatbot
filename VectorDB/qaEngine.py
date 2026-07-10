@@ -102,8 +102,11 @@ except Exception:
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PERSIST_DIR = str(PROJECT_ROOT / "chroma_store")
-COLLECTION_NAME = "msk_chunks"
+# Store/collection default to production; env overrides let an eval run point at a
+# side-by-side store (e.g. the contextual-retrieval store) WITHOUT touching prod.
+# Unset = production defaults, so this is a no-op in normal operation.
+PERSIST_DIR = os.getenv("MSK_CHROMA_DIR") or str(PROJECT_ROOT / "chroma_store")
+COLLECTION_NAME = os.getenv("MSK_COLLECTION") or "msk_chunks"
 
 OPENAI_MODEL = "gpt-5.4-mini"
 RERANKER_MODEL = "gpt-4.1-nano"   # fast/cheap model for reranking only
