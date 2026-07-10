@@ -90,8 +90,22 @@ except Exception:
     build_graph_context = None  # type: ignore[assignment]
     format_graph_context = None  # type: ignore[assignment]
 
-# Embedding model constant (must match what was used to build chroma_store)
-EMBED_MODEL = "text-embedding-3-large"
+# ── Embedding backend selection ──────────────────────────────────────────────
+# Production default: OpenAI text-embedding-3-large (what chroma_store was built
+# with). A fully non-OpenAI pipeline (no OpenAI key at all) can select a local
+# SentenceTransformer backend via MSK_EMBED_PROVIDER=local, paired with a store
+# built by the SAME model (scripts/build_local_embed_store.py + MSK_CHROMA_DIR).
+# Query and document vectors MUST come from the same model/space, so the embedding
+# backend is process-level (like MSK_CHROMA_DIR/MSK_COLLECTION), not per-request.
+# Unset = production behaviour, byte-for-byte.
+EMBED_PROVIDER = (os.getenv("MSK_EMBED_PROVIDER") or "openai").strip().lower()
+
+# OpenAI embedding model — must match the vectors in the OpenAI-built store.
+EMBED_MODEL = os.getenv("MSK_OPENAI_EMBED_MODEL") or "text-embedding-3-large"
+
+# Local (SentenceTransformer) model for the non-OpenAI pipeline. Default matches
+# Embedding/embedding.py so a store built by that path is query-compatible.
+LOCAL_EMBED_MODEL = os.getenv("MSK_LOCAL_EMBED_MODEL") or "mixedbread-ai/mxbai-embed-large-v1"
 
 
 
@@ -552,6 +566,49 @@ def openai_embed(texts: list[str]) -> list[list[float]]:
     return [d.embedding for d in resp.data]
 
 
+_local_embed_model = None  # lazy-loaded SentenceTransformer singleton
+
+
+def _get_local_embedder():
+    """Lazily load the local SentenceTransformer model (non-OpenAI pipeline).
+
+    Imported lazily so sentence-transformers/torch stay OPTIONAL — they are not in
+    backend/requirements.txt, and the default OpenAI pipeline must never require
+    them. Only paid for when MSK_EMBED_PROVIDER=local is actually selected."""
+    global _local_embed_model
+    if _local_embed_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except Exception as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "MSK_EMBED_PROVIDER=local requires sentence-transformers "
+                f"(pip install sentence-transformers). Original error: {exc}"
+            ) from exc
+        _local_embed_model = SentenceTransformer(LOCAL_EMBED_MODEL)
+    return _local_embed_model
+
+
+def local_embed(texts: list[str]) -> list[list[float]]:
+    """Embed texts with a local SentenceTransformer, L2-normalized for cosine.
+
+    Normalization matches how the local store is built, so query and document
+    vectors live in the same space. No network, no API key."""
+    model = _get_local_embedder()
+    clean = [(str(t).strip() or "empty") for t in texts]
+    vecs = model.encode(clean, convert_to_numpy=True, normalize_embeddings=True)
+    return [[float(x) for x in v] for v in vecs]
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Embed via the configured backend (EMBED_PROVIDER). OpenAI by default.
+
+    This is the single choke point every retrieval/query embedding flows through,
+    so selecting a non-OpenAI backend can never silently fall back to OpenAI."""
+    if EMBED_PROVIDER == "local":
+        return local_embed(texts)
+    return openai_embed(texts)
+
+
 class Backend:
     def __init__(self) -> None:
         self.collection = None
@@ -571,8 +628,8 @@ _backend = Backend()
 
 
 def encode_query(text: str) -> list[list[float]]:
-    """Embed a single query string via OpenAI and return as nested list for Chroma."""
-    return openai_embed([text])
+    """Embed a single query string via the configured backend; nested list for Chroma."""
+    return embed_texts([text])
 
 
 # ── BM25 Sparse Index ────────────────────────────────────────────────────────
@@ -1185,10 +1242,10 @@ def select_relevant_history(
     if not entries:
         return []
 
-    # Embed query + history texts in one batch via OpenAI
+    # Embed query + history texts in one batch via the configured backend.
     h_texts = [f"[{role.upper()}] {text}" for _, role, text in entries]
     all_texts = [query] + h_texts
-    all_embs = openai_embed(all_texts)
+    all_embs = embed_texts(all_texts)
 
     q_emb = np.array(all_embs[0])
     h_embs = np.array(all_embs[1:])
