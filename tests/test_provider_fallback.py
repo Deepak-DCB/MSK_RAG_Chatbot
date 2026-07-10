@@ -251,6 +251,38 @@ def test_empty_provider_answer_falls_through_to_next(monkeypatch):
     assert text == "real answer"
 
 
+class _PinnedGroqCfg:
+    openai_model = "gpt-4.1-mini"
+    num_predict = 100
+    generation_provider = "groq"   # user pinned Groq in the model dropdown
+    generation_model = "llama-3.3-70b-versatile"
+
+
+def test_pinned_provider_empty_answer_degrades_to_evidence_only(monkeypatch):
+    # Reproduces the reported bug: a pinned Groq model returns HTTP 200 with empty
+    # content, streaming zero tokens. Before the fix this returned "" as a success
+    # and the client showed a dead "No response received." bubble. The pinned
+    # contract says: the chosen model, or a safe grounded answer — so it must land
+    # on evidence-only, never an empty success.
+    spec = qaEngine.ProviderSpec("groq", "https://api.groq.com/openai/v1", "gk",
+                                 "llama-3.3-70b-versatile")
+    monkeypatch.setattr(qaEngine, "_provider_spec_for", lambda name, model=None: spec)
+
+    def _empty_call(spec, prompt, num_predict, on_token=None, history=None, system_prompt=None):
+        return "", 5, 0  # 200 OK, no content, nothing streamed
+    monkeypatch.setattr(qaEngine, "_call_provider", _empty_call)
+
+    got = []
+    text, pt, ot, mode, model = qaEngine.generate_answer_with_fallback(
+        "prompt", _PinnedGroqCfg(), context=[], context_pack=None, question="q",
+        on_token=got.append,
+    )
+    assert mode == "evidence_only"
+    assert model is None
+    assert text.strip()          # real, non-empty grounded answer
+    assert "".join(got).strip()  # streamed to the client (no dead bubble)
+
+
 def test_fallback_reraises_if_tokens_already_streamed(monkeypatch):
     # OpenAI emits a token then dies — we must NOT silently switch providers.
     def _partial_then_die(prompt, model, num_predict, on_token=None, history=None, **k):
