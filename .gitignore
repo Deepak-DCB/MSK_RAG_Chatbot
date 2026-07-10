@@ -72,3 +72,7 @@ nul
 # Contextual-retrieval side-by-side artifacts (experimental, built on demand)
 /chroma_store_contextual/
 /MSKArticlesINDEX/contextual/
+
+# Local-embedding side-by-side store (non-OpenAI pipeline, built on demand)
+/chroma_store_local/
+/embeddings/embedding_model_local.txt
