@@ -654,7 +654,8 @@ def ask(req: AskRequest, request: Request):
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    history = req.history[-MAX_HISTORY_TURNS:] if req.history else None
+    # MAX_HISTORY_TURNS is a cap on user+assistant *pairs*, so keep 2 messages per turn.
+    history = req.history[-(MAX_HISTORY_TURNS * 2):] if req.history else None
     cfg, cfg_meta = _build_config(req.config)
 
     try:
@@ -816,7 +817,8 @@ def ask_stream(req: AskRequest, request: Request,
     # Extract user_id from JWT (optional — guests can still use)
     user_id = _extract_user_id(authorization)
 
-    history = req.history[-MAX_HISTORY_TURNS:] if req.history else None
+    # MAX_HISTORY_TURNS is a cap on user+assistant *pairs*, so keep 2 messages per turn.
+    history = req.history[-(MAX_HISTORY_TURNS * 2):] if req.history else None
     cfg, cfg_meta = _build_config(req.config)
 
     token_q: queue.Queue = queue.Queue()
