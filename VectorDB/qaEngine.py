@@ -1667,15 +1667,18 @@ def rewrite_query(user_q: str, category: str, openai_model: str, history=None) -
     based on classification category A/B/C/D.
     Uses last 2 conversation turns to resolve pronouns and vague follow-ups.
     """
-    # Build recent conversation context for the rewriter
+    # Build recent conversation context for the rewriter. Assistant answers get a
+    # larger budget: they name the pattern/region under discussion, which is exactly
+    # what a vague follow-up ("what exercises help?") needs to resolve against.
     conv_context = ""
     if history:
         recent = history[-4:]  # last 2 turns (2 messages each: user + assistant)
         lines = []
         for turn in recent:
-            role = turn.get("role", "user").capitalize()
-            content = turn.get("content", "")[:200]  # truncate for rewriter
-            lines.append(f"{role}: {content}")
+            role = turn.get("role", "user")
+            max_chars = 600 if role == "assistant" else 300
+            content = turn.get("content", "")[:max_chars]
+            lines.append(f"{role.capitalize()}: {content}")
         conv_context = "\n".join(lines)
 
     history_block = ""
@@ -2170,12 +2173,16 @@ def _agentic_run_impl(
 
 
 
-def _truncate_history(history, max_turns=5, max_chars_per_msg=800, max_total_tokens=2500):
+def _truncate_history(history, max_turns=5, max_chars_user=800,
+                      max_chars_assistant=1600, max_total_tokens=3000):
     """
     Prepare conversation history for the LLM messages array.
     - Keeps the last `max_turns` pairs (10 messages max)
-    - Truncates each message to `max_chars_per_msg` characters
-    - Stops adding once estimated token budget is reached
+    - Truncates each message by role: assistant answers carry the established
+      clinical context of the conversation, so they get a larger character
+      budget than user messages
+    - Fills the token budget newest-first, so when the budget runs out it is
+      the oldest messages that are dropped
     """
     if not history:
         return []
@@ -2186,13 +2193,14 @@ def _truncate_history(history, max_turns=5, max_chars_per_msg=800, max_total_tok
     truncated = []
     total_tokens = 0
 
-    for msg in recent:
+    for msg in reversed(recent):
         role = msg.get("role", "user")
         content = msg.get("content", "")
 
         # Truncate long messages
-        if len(content) > max_chars_per_msg:
-            content = content[:max_chars_per_msg] + "…"
+        max_chars = max_chars_assistant if role == "assistant" else max_chars_user
+        if len(content) > max_chars:
+            content = content[:max_chars] + "…"
 
         est_tokens = len(content) // 4  # rough estimate: 1 token ≈ 4 chars
         if total_tokens + est_tokens > max_total_tokens:
@@ -2201,6 +2209,7 @@ def _truncate_history(history, max_turns=5, max_chars_per_msg=800, max_total_tok
         total_tokens += est_tokens
         truncated.append({"role": role, "content": content})
 
+    truncated.reverse()  # restore chronological order
     return truncated
 
 

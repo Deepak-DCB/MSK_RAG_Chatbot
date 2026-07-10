@@ -1087,6 +1087,18 @@ function appendFeedback(bubble) {
 // ── Markdown ─────────────────────────────────────────────────────────────────
 function renderMarkdown(text) {
     if (!text) return "";
+    // Full CommonMark/GFM rendering (tables, setext headings, * bullets, blockquotes)
+    // via vendored marked + DOMPurify. Different generation providers emit different
+    // markdown dialects; the old regex renderer only handled the GPT-4.1 subset.
+    if (window.marked && window.DOMPurify) {
+        const html = marked.parse(text, { gfm: true, breaks: true });
+        return DOMPurify.sanitize(html);
+    }
+    return renderMarkdownFallback(text);
+}
+
+// Legacy regex renderer, kept only as a fallback if the vendored libs fail to load.
+function renderMarkdownFallback(text) {
     let html = escapeHtml(text);
     html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
     html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
@@ -1096,7 +1108,7 @@ function renderMarkdown(text) {
     html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
     html = html.replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>");
     html = html.replace(/(<li>.*<\/li>\n?)+/gs, match => `<ol>${match}</ol>`);
-    html = html.replace(/^[-•] (.+)$/gm, "<li>$1</li>");
+    html = html.replace(/^[-•*] (.+)$/gm, "<li>$1</li>");
     html = html.replace(/\n\n/g, "</p><p>");
     html = html.replace(/\n/g, "<br>");
     return `<p>${html}</p>`;

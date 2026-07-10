@@ -869,6 +869,54 @@ button {
     color: var(--brand-ink);
 }
 
+.message-bubble pre {
+    background: var(--brand-soft);
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    margin: 0.5rem 0;
+    overflow-x: auto;
+}
+
+.message-bubble pre code {
+    background: none;
+    padding: 0;
+}
+
+.message-bubble blockquote {
+    border-left: 3px solid var(--line);
+    margin: 0.5rem 0;
+    padding: 0.1rem 0 0.1rem 0.75rem;
+    color: var(--ink-soft, var(--ink));
+}
+
+.message-bubble table {
+    border-collapse: collapse;
+    margin: 0.6rem 0;
+    width: 100%;
+    display: block;
+    overflow-x: auto;
+    font-size: 0.88em;
+}
+
+.message-bubble th,
+.message-bubble td {
+    border: 1px solid var(--line);
+    padding: 0.35rem 0.55rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.message-bubble th {
+    background: var(--brand-soft);
+    font-weight: 600;
+}
+
+.message-bubble hr {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 0.75rem 0;
+}
+
 /* ── Typing indicator ──────────────────────────────────────────────────────── */
 .typing-indicator {
     display: flex;
