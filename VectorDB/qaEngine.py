@@ -2520,7 +2520,10 @@ _PROVIDER_DEFS: Dict[str, Dict[str, Any]] = {
         "base_url": "https://api.groq.com/openai/v1",
         "api_key_env": "GROQ_API_KEY",
         "model_env": "GROQ_MODEL",
-        "default_model": "llama-3.3-70b-versatile",
+        # llama-3.3-70b-versatile / llama-3.1-8b-instant were deprecated by Groq on
+        # 2026-06-17 and shut down 2026-08-16. gpt-oss-120b is Groq's recommended
+        # replacement for the 70B and a current production model. Override via GROQ_MODEL.
+        "default_model": "openai/gpt-oss-120b",
     },
     "cerebras": {
         "base_url": "https://api.cerebras.ai/v1",
@@ -2584,7 +2587,10 @@ def _configured_providers() -> List[ProviderSpec]:
 # presets only — a custom model string is also accepted per provider.
 _SUGGESTED_MODELS: Dict[str, List[str]] = {
     "openai": ["gpt-5.4-mini", "gpt-4.1-mini", "gpt-4.1-nano"],
-    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-20b"],
+    # Groq's llama-3.3-70b-versatile and llama-3.1-8b-instant shut down 2026-08-16;
+    # replaced here by Groq's current production gpt-oss models (the vendor-
+    # recommended migration). Any served model id can still be typed (allow_custom).
+    "groq": ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
     "cerebras": ["llama-3.3-70b", "llama3.1-8b"],
     "openrouter": ["openrouter/auto"],
     "mistral": ["mistral-small-latest", "mistral-large-latest"],
