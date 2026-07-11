@@ -75,7 +75,12 @@ app.add_middleware(
 MAX_QUESTION_LEN = 1000
 MAX_HISTORY_TURNS = 5
 MAX_SUMMARY_LEN = 2500  # rolling conversation summary (client-supplied, truncated)
-MAX_OUTPUT_TOKENS = 1000
+# Lower budget = more faithful answers. The model bake-off (scripts/model_bakeoff.py)
+# showed gpt-oss faithfulness rises sharply as the budget shrinks (0.25 @2048 ->
+# 0.64 @700): a larger budget lets the model ramble into confident, unsupported
+# mechanisms. gpt-oss answers finish at <=380 tokens under a 700 cap, so this curbs
+# rambling without truncating real answers.
+MAX_OUTPUT_TOKENS = 700
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX = 5      # requests per window per IP
 MECHANICS_MAX_ITEMS_DEFAULT = 8
