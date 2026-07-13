@@ -126,6 +126,35 @@ def test_ask_openai_llm_non_streaming_provider_emits_once():
     assert all(not c.get("stream") for c in fake.calls)  # never attempted streaming
 
 
+def test_cancelled_stream_does_not_retry_after_a_pre_token_timeout():
+    class Cancelled(BaseException):
+        pass
+
+    fake = _FakeClient(tokens=["never delivered"], stream_error=TimeoutError("provider timeout"))
+
+    def check_cancelled():
+        if fake.calls:
+            raise Cancelled()
+
+    def on_token(_token):
+        raise AssertionError("no token should be delivered")
+
+    on_token.check_cancelled = check_cancelled
+
+    with pytest.raises(Cancelled):
+        qaEngine.ask_openai_llm(
+            "prompt",
+            model="some-model",
+            num_predict=50,
+            on_token=on_token,
+            client=fake,
+            param_style="compat",
+        )
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["stream"] is True
+
+
 def test_ask_openai_llm_openai_style_uses_max_completion_tokens():
     fake = _FakeClient(tokens=["x"])
     qaEngine.ask_openai_llm("p", model="gpt-4.1-mini", num_predict=10, client=fake, param_style="openai")

@@ -532,6 +532,15 @@ def _classify_openai_error(exc: Exception) -> Optional[str]:
 
 # ── OpenAI client singleton ──────────────────────────────────────────────────
 
+# Hard bound on a single provider HTTP call. The SDK default is 600s, so a provider that
+# accepts the connection and then hangs without emitting a token pins a generation thread
+# for ten minutes — and the backend's cooperative cancellation (which fires on the next
+# on_token) can never reach it, because no token ever arrives. This is that backstop.
+# Kept under the backend's 120s stream deadline: past that, nobody is listening anyway.
+# A timeout surfaces as APITimeoutError -> not a key error -> the normal fallback chain
+# (free providers -> evidence-only) still runs, so degradation behaviour is preserved.
+OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS") or 90)
+
 _openai_client: Optional[OpenAI] = None
 
 def _get_openai_client() -> OpenAI:
@@ -541,12 +550,12 @@ def _get_openai_client() -> OpenAI:
     # Per-request BYO key: build an ephemeral client and never cache it globally.
     req_key = _request_api_key.get()
     if req_key:
-        return OpenAI(api_key=req_key)
+        return OpenAI(api_key=req_key, timeout=OPENAI_TIMEOUT_SECONDS)
     if _openai_client is None:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise OpenAIKeyError("OPENAI_API_KEY is not set in environment variables.")
-        _openai_client = OpenAI(api_key=api_key)
+        _openai_client = OpenAI(api_key=api_key, timeout=OPENAI_TIMEOUT_SECONDS)
     return _openai_client
 
 
@@ -1907,6 +1916,24 @@ _RED_FLAG_PATTERNS = {
         r"\bchest\s+(pressure|tightness)\b.{0,70}\b(shortness of breath|trouble breathing|difficulty breathing|fainting|sweating|pressure)\b",
         r"\bchest\s+pain\b.{0,70}\b(shortness of breath|trouble breathing|difficulty breathing|fainting|sweating|pressure)\b",
         r"\b(shortness of breath|trouble breathing|difficulty breathing|fainting|sweating)\b.{0,70}\bchest\s+pain\b",
+        # Standalone respiratory symptoms. Every pattern above requires chest pain to
+        # CO-OCCUR, so "I am having trouble breathing" on its own escaped the gate
+        # entirely. AGENTS.md already lists "severe chest pain or breathing symptoms" as
+        # an escalation criterion and the reason label already reads "breathing symptoms"
+        # — this closes a code-vs-policy gap, it does not widen the policy.
+        #
+        # Dyspnoea is non-MSK and potentially cardiopulmonary, so an MSK triage tool
+        # should hand it off rather than reason about it. Escalation-only: a false
+        # positive costs one "seek in-person evaluation" message.
+        #
+        # Deliberately matches the SYMPTOM, never the mechanism: the corpus discusses
+        # "breathing mechanics", "diaphragmatic breathing", and "breathing exercises",
+        # and none of those may trip this gate.
+        r"\b(trouble|difficulty|problems?)\s+breathing\b",
+        r"\b(can'?t|cannot|can not|unable to|struggling to|hard to|difficult to)\s+breathe\b",
+        r"\b(shortness of breath|short of breath|breathlessness|breathless)\b",
+        r"\b(gasping|struggling)\s+for\s+(air|breath)\b",
+        r"\bcan'?t\s+catch\s+my\s+breath\b",
     ],
     "fever_systemic_decline": [
         r"\bfever\b.{0,80}\b(feel very ill|feeling very ill|systemic|chills|worsening|severe|weakness|decline)\b",
@@ -2235,6 +2262,8 @@ def _agentic_run_impl(
     # The rolling summary is client-supplied; cap it defensively before use.
     conversation_summary = (conversation_summary or "").strip()[:2500] or None
 
+    _check_generation_cancelled(on_token)
+
     # Step -1: local zero-cost gates before retrieval/generation.
     preflight = local_preflight(question, history=history)
     if preflight["action"] == "respond":
@@ -2256,20 +2285,26 @@ def _agentic_run_impl(
     try:
         category = classify_query(question, RERANKER_MODEL, history=history)
     except Exception as exc:
+        _check_generation_cancelled(on_token)
         query_processing_degraded = True
         category = "D"  # broad retrieval
         logger.warning("classify_query degraded to 'D' (%s: %s)", type(exc).__name__, exc)
+
+    _check_generation_cancelled(on_token)
 
     # Step 2: rewrite for retrieval (with history for context-aware rewriting)
     try:
         refined_q = rewrite_query(question, category, RERANKER_MODEL, history=history,
                                   conversation_summary=conversation_summary)
     except Exception as exc:
+        _check_generation_cancelled(on_token)
         query_processing_degraded = True
         refined_q = question  # fall back to the original user question
         logger.warning("rewrite_query degraded to original question (%s: %s)", type(exc).__name__, exc)
 
     generation_question = question if cfg.answer_original_question else refined_q
+
+    _check_generation_cancelled(on_token)
 
     # Step 3: run run_qa() but forward history correctly. The rewritten query is
     # used for retrieval; generation answers the original user question by default.
@@ -2282,6 +2317,8 @@ def _agentic_run_impl(
                      generation_question=generation_question,
                      conversation_summary=conversation_summary)
 
+    _check_generation_cancelled(on_token)
+
     # Step 4: fold this exchange into the rolling summary for the next turn.
     # Best-effort: only after a real LLM answer (if generation degraded, the utility
     # model is likely down too), and never fatal — the previous summary is kept.
@@ -2289,7 +2326,9 @@ def _agentic_run_impl(
     if str(res.get("answer_mode", "")).startswith("llm:") and res.get("answer"):
         try:
             new_summary = summarize_conversation(conversation_summary, question, res["answer"])
+            _check_generation_cancelled(on_token)
         except Exception as exc:
+            _check_generation_cancelled(on_token)
             logger.warning("summarize_conversation failed (%s: %s); keeping previous summary",
                            type(exc).__name__, exc)
     res["conversation_summary"] = new_summary
@@ -2451,6 +2490,13 @@ def build_evidence_only_answer(
     return "\n".join(lines).strip()
 
 
+def _check_generation_cancelled(on_token=None) -> None:
+    """Check a private stream-cancellation hook between provider attempts."""
+    checker = getattr(on_token, "check_cancelled", None)
+    if callable(checker):
+        checker()
+
+
 def ask_openai_llm(
     prompt: str,
     model: str,
@@ -2479,6 +2525,8 @@ def ask_openai_llm(
 
     if client is None:
         client = _get_openai_client()
+
+    _check_generation_cancelled(on_token)
 
     # Token counting for telemetry
     prompt_tokens = count_tokens(prompt)
@@ -2549,6 +2597,9 @@ def ask_openai_llm(
             code = _classify_openai_error(stream_err)
             if code:
                 raise OpenAIKeyError(f"Generation request failed: {stream_err}", code=code) from stream_err
+            # A disconnected SSE consumer must not incur a second request after a
+            # provider timeout that happened before the first token.
+            _check_generation_cancelled(on_token)
             # A genuine 4xx (bad request / unknown model) will fail identically without
             # streaming, so don't burn a second call on it. Detect it by the SDK's
             # status_code rather than sniffing the message for "400"/"invalid" — those
@@ -2566,6 +2617,7 @@ def ask_openai_llm(
         raise RuntimeError("Streaming failed after partial output; not retrying non-streaming.")
 
     # ---------- 2) Non-streaming fallback ----------
+    _check_generation_cancelled(on_token)
     try:
         resp = client.chat.completions.create(**request_args, stream=False)
         content = resp.choices[0].message.content or ""
@@ -2776,6 +2828,7 @@ def _call_provider(
         api_key=spec.api_key,
         base_url=spec.base_url,
         default_headers=spec.extra_headers or None,
+        timeout=OPENAI_TIMEOUT_SECONDS,
     )
     return ask_openai_llm(
         prompt,
@@ -2822,6 +2875,13 @@ def generate_answer_with_fallback(
         if on_token:
             on_token(tok)
 
+    cancellation_checker = getattr(on_token, "check_cancelled", None)
+    if callable(cancellation_checker):
+        _tracked.check_cancelled = cancellation_checker
+
+    def _check_cancelled() -> None:
+        _check_generation_cancelled(on_token)
+
     def _empty(text: str) -> bool:
         # A provider can return HTTP 200 with empty/whitespace content (e.g. a
         # reasoning model that spends its whole token budget before emitting an
@@ -2832,6 +2892,7 @@ def generate_answer_with_fallback(
         return tokens_emitted == 0 and not (text or "").strip()
 
     def _evidence_only() -> Tuple[str, int, int, str, Optional[str]]:
+        _check_cancelled()
         text = build_evidence_only_answer(context, context_pack, question)
         if on_token and tokens_emitted == 0:
             on_token(text)
@@ -2844,6 +2905,7 @@ def generate_answer_with_fallback(
         if pinned == "openai":
             model = pinned_model or cfg.openai_model
             try:
+                _check_cancelled()
                 text, pt, ot = ask_openai_llm(
                     prompt, model=model, num_predict=cfg.num_predict,
                     on_token=_tracked, history=history,
@@ -2858,6 +2920,7 @@ def generate_answer_with_fallback(
                 # mid-stream failure is re-raised, since the client already has tokens.
                 if tokens_emitted > 0:
                     raise
+                _check_cancelled()
                 logger.warning(
                     "pinned openai model %s unavailable (%s: %s); using evidence-only",
                     model, type(exc).__name__, exc,
@@ -2868,6 +2931,7 @@ def generate_answer_with_fallback(
                 logger.warning("pinned provider %s has no server key; using evidence-only", pinned)
             else:
                 try:
+                    _check_cancelled()
                     text, pt, ot = _call_provider(
                         spec, prompt, cfg.num_predict, on_token=_tracked, history=history,
                     )
@@ -2878,6 +2942,7 @@ def generate_answer_with_fallback(
                 except Exception as exc:
                     if tokens_emitted > 0:
                         raise
+                    _check_cancelled()
                     logger.warning(
                         "pinned provider %s failed (%s: %s); using evidence-only",
                         pinned, type(exc).__name__, exc,
@@ -2887,6 +2952,7 @@ def generate_answer_with_fallback(
     # ── Default resilience chain (no explicit pin). ──
     # 1) Primary: OpenAI (uses the per-request key if supplied, else the env key).
     try:
+        _check_cancelled()
         text, pt, ot = ask_openai_llm(
             prompt, model=cfg.openai_model, num_predict=cfg.num_predict,
             on_token=_tracked, history=history,
@@ -2901,6 +2967,7 @@ def generate_answer_with_fallback(
         # this chain exists to prevent. Mid-stream failures still re-raise.
         if tokens_emitted > 0:
             raise
+        _check_cancelled()
         logger.warning(
             "openai generation unavailable (%s: %s); trying fallback providers",
             type(exc).__name__, exc,
@@ -2909,6 +2976,7 @@ def generate_answer_with_fallback(
     # 2) Free OpenAI-compatible providers, in priority order.
     for spec in _configured_providers():
         try:
+            _check_cancelled()
             text, pt, ot = _call_provider(
                 spec, prompt, cfg.num_predict, on_token=_tracked, history=history,
             )
@@ -2919,6 +2987,7 @@ def generate_answer_with_fallback(
         except Exception as exc:
             if tokens_emitted > 0:
                 raise
+            _check_cancelled()
             logger.warning(
                 "fallback provider %s failed (%s: %s); trying next",
                 spec.name, type(exc).__name__, exc,
@@ -3138,6 +3207,10 @@ def run_qa(
                 first_token_time = time.time()
             if on_token:
                 on_token(tok)
+
+        cancellation_checker = getattr(on_token, "check_cancelled", None)
+        if callable(cancellation_checker):
+            token_callback.check_cancelled = cancellation_checker
 
         # Generate with graceful degradation: OpenAI -> free providers -> evidence-only.
         answer_text, prompt_tokens, output_tokens, answer_mode, generation_model = generate_answer_with_fallback(

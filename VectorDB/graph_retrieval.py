@@ -37,11 +37,18 @@ def _is_loose_co_mention(edge: Dict[str, Any]) -> bool:
 
 
 def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    """Parse a JSONL artifact, skipping (and logging) individual malformed lines.
+    """Parse a JSONL artifact, skipping (and logging) individual malformed rows.
 
-    A single corrupt line must not take down the whole graph: these artifacts are
-    generated files, and one bad line previously raised JSONDecodeError out of
-    load_graph, silently disabling graph context entirely.
+    A single corrupt row must not take down the whole graph: these are generated files,
+    and one bad line previously raised JSONDecodeError out of load_graph, silently
+    disabling graph context everywhere.
+
+    Two distinct failure modes are skipped here:
+      * unparseable JSON (JSONDecodeError) — e.g. a stray keystroke saved into the file;
+      * *valid* JSON that is not an object — a bare string/number/list/null. These parse
+        fine, so they used to survive into `nodes`, and then blew up as an AttributeError
+        on `node.get(...)` in load_graph — outside its try/except — taking the graph down
+        by a different route.
     """
     rows: List[Dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as f:
@@ -49,9 +56,17 @@ def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
             if not line.strip():
                 continue
             try:
-                rows.append(json.loads(line))
+                row = json.loads(line)
             except json.JSONDecodeError as exc:
-                logger.warning("skipping malformed line %d in %s: %s", lineno, path.name, exc)
+                logger.warning("skipping unparseable line %d in %s: %s", lineno, path.name, exc)
+                continue
+            if not isinstance(row, dict):
+                logger.warning(
+                    "skipping non-object line %d in %s: expected a JSON object, got %s",
+                    lineno, path.name, type(row).__name__,
+                )
+                continue
+            rows.append(row)
     return rows
 
 

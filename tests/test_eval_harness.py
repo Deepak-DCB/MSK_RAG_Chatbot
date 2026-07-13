@@ -12,6 +12,7 @@ from scripts.run_eval_production import (
     make_claims_eval,
     make_product_behavior_eval,
     make_safety_eval,
+    summarize_run,
 )
 
 
@@ -184,3 +185,71 @@ def test_product_behavior_eval_does_not_credit_empty_answer_boundaries():
     assert product_eval["diagnosis_boundary_pass"] is None
     assert product_eval["treatment_boundary_pass"] is None
     assert product_eval["overall_pass"] is None
+
+
+def test_dry_run_graph_rows_are_not_reported_as_measured_unavailable():
+    case = {
+        "output": {
+            "latency_ms": {"total": 0},
+            "tokens": {"prompt": 0, "output": 0},
+            "retrieval_confidence": 0.0,
+            "estimated_cost_usd": 0.0,
+            "answer_text": "",
+        },
+        "ops": {"error_type": "none"},
+        "retrieval": {
+            "gold_relevance": {},
+            "hierarchical": {},
+            "graph": {
+                "graph_available": False,
+                "graph_fallback_reason": "dry_run_no_runtime",
+                "graph_path_count": 0,
+                "graph_supporting_span_count": 0,
+                "graph_context_token_estimate": 0,
+                "total_context_token_estimate": 0,
+            },
+        },
+        "claims": {"evaluation_status": "not_evaluated"},
+        "safety": {"evaluation_status": "not_evaluated"},
+        "answer_quality": {"evaluation_status": "not_evaluated"},
+        "product_behavior": {"evaluation_status": "not_evaluated"},
+    }
+    report = summarize_run(
+        [case],
+        "dry-run-test",
+        {
+            "commit_hash": "abc1234",
+            "pipeline_mode": "off",
+            "openai_model": "gpt-4.1-mini",
+            "reranker_model": "gpt-4.1-nano",
+            "use_reranker": False,
+            "reranker_top_n": 10,
+        },
+        {
+            "dataset_id": "test",
+            "dataset_version": "2026-07-13",
+            "dataset_path": "test.jsonl",
+            "dataset_sha256": "hash",
+            "dataset_row_count": 1,
+            "split": "dev",
+            "stratum_default": ["standard"],
+            "is_blind_holdout": False,
+        },
+        eval_scope={
+            "retrieval_evaluated": False,
+            "grounding_evaluated": False,
+            "safety_evaluated": False,
+            "answer_quality_evaluated": False,
+            "product_behavior_evaluated": False,
+            "clinician_evaluated": False,
+        },
+    )
+
+    graph_metrics = report["metrics"]["concept_graph"]
+    assert graph_metrics["evaluated_cases"] == 0
+    assert graph_metrics["graph_available_rate"] is None
+    assert graph_metrics["graph_path_presence_rate"] is None
+    assert graph_metrics["graph_supporting_span_presence_rate"] is None
+    assert graph_metrics["graph_fallback_rate"] is None
+    assert graph_metrics["avg_graph_context_tokens"] is None
+    assert graph_metrics["avg_total_context_tokens"] is None
