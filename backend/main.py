@@ -89,6 +89,9 @@ MECHANICS_MAX_ITEMS_MAX = 12
 PUBLIC_RERANKER_TOP_N_MIN = 1
 PUBLIC_RERANKER_TOP_N_MAX = 10
 MAX_HISTORY_OFFSET = 5000
+MAX_HISTORY_MESSAGES = MAX_HISTORY_TURNS * 2
+MAX_HISTORY_MSG_LEN = 4000  # per-message cap; qaEngine truncates further before prompting
+RATE_LOG_PRUNE_THRESHOLD = 1024  # prune drained IP buckets once the map grows past this
 TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "").strip().lower() in {"1", "true", "yes", "on"}
 TRUSTED_PROXY_NETWORKS = []
 for raw_proxy in os.getenv("TRUSTED_PROXY_IPS", "").split(","):
@@ -105,9 +108,20 @@ _rate_log: Dict[str, collections.deque] = {}
 _rate_log_lock = threading.Lock()
 
 
+def _prune_rate_log(now: float) -> None:
+    """Drop IPs whose window has fully drained. Without this, _rate_log keeps one entry
+    per unique IP forever — an IPv6 /64 gives an attacker 2^64 of them."""
+    cutoff = now - RATE_LIMIT_WINDOW
+    stale = [ip for ip, dq in _rate_log.items() if not dq or dq[-1] < cutoff]
+    for ip in stale:
+        del _rate_log[ip]
+
+
 def _check_rate_limit(ip: str) -> None:
     now = time.time()
     with _rate_log_lock:
+        if len(_rate_log) > RATE_LOG_PRUNE_THRESHOLD:
+            _prune_rate_log(now)
         if ip not in _rate_log:
             _rate_log[ip] = collections.deque()
         dq = _rate_log[ip]
@@ -129,6 +143,19 @@ def _check_rate_limit(ip: str) -> None:
 
 
 def _client_ip(request: Request) -> str:
+    """Resolve the client IP for rate limiting.
+
+    When TRUST_PROXY_HEADERS is on we read X-Forwarded-For **right to left**. A platform
+    proxy (Render, Cloudflare) *appends* the peer it saw to whatever XFF the client sent,
+    so the rightmost entry is the only one the client cannot forge — reading the leftmost
+    would let anyone spoof an arbitrary IP and evade (or poison) the limiter.
+
+    TRUSTED_PROXY_IPS optionally restricts *which* direct peers may be believed. Leaving
+    it unset no longer disables the header entirely (previously `any()` over an empty list
+    was always False, so TRUST_PROXY_HEADERS=1 silently did nothing and every user behind
+    the proxy shared one rate-limit bucket); it now means "trust the immediate peer",
+    which is the platform proxy in a standard single-hop deployment.
+    """
     direct_ip = request.client.host if request.client else "unknown"
     if not TRUST_PROXY_HEADERS:
         return direct_ip
@@ -136,26 +163,27 @@ def _client_ip(request: Request) -> str:
         direct_addr = ipaddress.ip_address(direct_ip)
     except ValueError:
         return direct_ip
-    if not any(direct_addr in network for network in TRUSTED_PROXY_NETWORKS):
+    if TRUSTED_PROXY_NETWORKS and not any(direct_addr in network for network in TRUSTED_PROXY_NETWORKS):
         return direct_ip
 
-    candidates = []
     forwarded_for = request.headers.get("x-forwarded-for", "")
     if forwarded_for:
-        first = forwarded_for.split(",", 1)[0].strip()
-        if first:
-            candidates.append(first)
+        for candidate in reversed([p.strip() for p in forwarded_for.split(",")]):
+            if not candidate:
+                continue
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                continue
 
     real_ip = request.headers.get("x-real-ip", "").strip()
     if real_ip:
-        candidates.append(real_ip)
-
-    for candidate in candidates:
         try:
-            ipaddress.ip_address(candidate)
-            return candidate
+            ipaddress.ip_address(real_ip)
+            return real_ip
         except ValueError:
-            continue
+            pass
     return direct_ip
 
 
@@ -287,13 +315,48 @@ def _log_supabase_env_status() -> None:
 
 
 # ── Startup: preload Chroma ──────────────────────────────────────────────────
+# The collection is a committed, read-only artifact, so its size never changes at
+# runtime. Counting it per /health request meant a SQLite aggregate on every uptime
+# ping (and /health is not rate limited).
+_chunk_count: Optional[int] = None
+
+
 @app.on_event("startup")
 def startup_load():
+    global _chunk_count
     _log_supabase_env_status()
-    _backend.load_collection()
+    coll = _backend.load_collection()
+    try:
+        _chunk_count = coll.count()
+    except Exception:
+        logger.exception("failed to count chroma collection at startup")
+        _chunk_count = None
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+def _sanitize_history(raw: Optional[List[Dict[str, str]]]) -> Optional[List[Dict[str, str]]]:
+    """Clamp client-supplied history to the documented caps.
+
+    Pydantic only typed this as Dict[str, str], so a client could post arbitrarily many
+    multi-megabyte messages. Keep the last MAX_HISTORY_TURNS pairs, drop anything that
+    isn't a well-formed role/content pair, and cap each message's length.
+    """
+    if not raw:
+        return None
+    cleaned: List[Dict[str, str]] = []
+    for msg in raw[-MAX_HISTORY_MESSAGES:]:
+        if not isinstance(msg, dict):
+            continue
+        role = str(msg.get("role") or "user").strip().lower()
+        if role not in {"user", "assistant"}:
+            role = "user"
+        content = str(msg.get("content") or "").strip()
+        if not content:
+            continue
+        cleaned.append({"role": role, "content": content[:MAX_HISTORY_MSG_LEN]})
+    return cleaned or None
+
+
 class AskRequest(BaseModel):
     question: str = Field(..., max_length=MAX_QUESTION_LEN)
     history: Optional[List[Dict[str, str]]] = Field(default=None)
@@ -634,7 +697,7 @@ def health():
     return {
         "status": "ok",
         "chroma_loaded": coll is not None,
-        "chunk_count": coll.count() if coll else 0,
+        "chunk_count": _chunk_count if _chunk_count is not None else 0,
     }
 
 
@@ -665,7 +728,7 @@ def ask(req: AskRequest, request: Request):
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     # MAX_HISTORY_TURNS is a cap on user+assistant *pairs*, so keep 2 messages per turn.
-    history = req.history[-(MAX_HISTORY_TURNS * 2):] if req.history else None
+    history = _sanitize_history(req.history)
     conversation_summary = (req.conversation_summary or "").strip()[:MAX_SUMMARY_LEN] or None
     cfg, cfg_meta = _build_config(req.config)
 
@@ -711,7 +774,10 @@ def ask(req: AskRequest, request: Request):
         config_source=cfg_meta["config_source"],
         user_key_active=bool(cfg_meta.get("user_key_active", False)),
         generation_provider=cfg_meta.get("generation_provider"),
-        generation_model=res.get("generation_model") or cfg_meta.get("generation_model"),
+        # The model that ACTUALLY produced the answer — null on the evidence-only path.
+        # Never substitute the requested model here: a pinned provider that fails falls
+        # through to evidence-only, and reporting the pin would credit a model that never ran.
+        generation_model=res.get("generation_model"),
         triage_level=res.get("triage_level"),
         safety_gate_triggered=bool(res.get("safety_gate_triggered", False)),
         safety_gate_reasons=res.get("safety_gate_reasons", []) or [],
@@ -815,6 +881,18 @@ def study_mechanics(req: MechanicsStudyRequest, request: Request):
 # ── Streaming endpoint (SSE) ─────────────────────────────────────────────────
 _SENTINEL = object()
 
+STREAM_IDLE_TIMEOUT = 60    # max gap between tokens
+STREAM_TOTAL_TIMEOUT = 120  # max total stream duration (the documented cap)
+
+
+def _timeout_event(request_id: str, reason: str) -> str:
+    meta = {
+        "error": f"{reason}. request_id={request_id}",
+        "request_id": request_id,
+        "complete": False,
+    }
+    return f"event: done\ndata: {json.dumps(meta)}\n\n"
+
 
 @app.post("/ask/stream")
 def ask_stream(req: AskRequest, request: Request,
@@ -831,7 +909,7 @@ def ask_stream(req: AskRequest, request: Request,
     user_id = _extract_user_id(authorization)
 
     # MAX_HISTORY_TURNS is a cap on user+assistant *pairs*, so keep 2 messages per turn.
-    history = req.history[-(MAX_HISTORY_TURNS * 2):] if req.history else None
+    history = _sanitize_history(req.history)
     conversation_summary = (req.conversation_summary or "").strip()[:MAX_SUMMARY_LEN] or None
     cfg, cfg_meta = _build_config(req.config)
 
@@ -861,17 +939,21 @@ def ask_stream(req: AskRequest, request: Request,
     threading.Thread(target=run_engine, daemon=True).start()
 
     def event_stream():
+        # Two independent deadlines. The old code passed timeout=120 to a get() inside the
+        # loop, which reset on every token — so a provider trickling one token a minute
+        # could hold the worker forever and the documented 120s cap enforced nothing.
+        deadline = time.monotonic() + STREAM_TOTAL_TIMEOUT
         while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning("ask_stream exceeded total deadline [request_id=%s]", request_id)
+                yield _timeout_event(request_id, "Timed out")
+                return
             try:
-                item = token_q.get(timeout=120)
+                item = token_q.get(timeout=min(STREAM_IDLE_TIMEOUT, remaining))
             except queue.Empty:
-                logger.warning("ask_stream timed out [request_id=%s]", request_id)
-                timeout_meta = {
-                    "error": f"Timeout. request_id={request_id}",
-                    "request_id": request_id,
-                    "complete": False,
-                }
-                yield f"event: done\ndata: {json.dumps(timeout_meta)}\n\n"
+                logger.warning("ask_stream stalled [request_id=%s]", request_id)
+                yield _timeout_event(request_id, "Response stalled")
                 return
             if item is _SENTINEL:
                 break
@@ -901,7 +983,8 @@ def ask_stream(req: AskRequest, request: Request,
             "config_source": cfg_meta["config_source"],
             "user_key_active": bool(cfg_meta.get("user_key_active", False)),
             "generation_provider": cfg_meta.get("generation_provider"),
-            "generation_model": result_holder.get("generation_model") or cfg_meta.get("generation_model"),
+            # Actual producing model — null for evidence-only. See /ask above.
+            "generation_model": result_holder.get("generation_model"),
             "triage_level": result_holder.get("triage_level"),
             "safety_gate_triggered": bool(result_holder.get("safety_gate_triggered", False)),
             "safety_gate_reasons": result_holder.get("safety_gate_reasons", []) or [],

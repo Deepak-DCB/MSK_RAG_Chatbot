@@ -1883,6 +1883,20 @@ _RED_FLAG_PATTERNS = {
         r"\b(now|suddenly|newly)\s+(can't|cannot|unable to)\s+(walk|stand|lift|raise|move|use)\b",
         r"\b(can't|cannot|unable to)\s+(walk|stand)\b",
         r"\bfoot\s+drop\b",
+        # Lay phrasings of the same deficits. The clinical vocabulary above ("progressive
+        # weakness", "loss of strength") is not how people actually describe these, so
+        # these variants close the gap. Escalation-only: a false positive costs one
+        # "get seen in person" message; a false negative misses a real emergency.
+        r"\b(getting|going|growing|becoming|been)\s+(progressively\s+)?weaker\b",
+        r"\bweaker\b.{0,35}\b(every|each)\s+(day|week|month)\b",
+        r"\b(losing|lost|loosing)\s+(strength|feeling|sensation|grip|power)\b",
+        r"\b(legs?|arms?|knees?|hands?|grip)\b.{0,25}\b(give|gives|giving|gave)\s+(out|way)\b",
+        r"\b(give|gives|giving|gave)\s+(out|way)\b.{0,25}\b(legs?|arms?|knees?|hands?)\b",
+        r"\b(numbness|tingling|weakness|pins and needles)\b.{0,45}\b(spreading|spreads|progressing|creeping|moving up|travell?ing)\b",
+        r"\b(spreading|spreads|progressing|creeping)\b.{0,45}\b(numbness|tingling|weakness)\b",
+        r"\b(can'?t|cannot|unable to)\s+(really\s+|properly\s+)?feel\s+(my\s+)?(legs?|arms?|hands?|feet|foot|fingers?|toes?)\b",
+        r"\b(grip|hand|arm|leg)\b.{0,25}\b(is\s+)?(failing|giving out|going dead)\b",
+        r"\b(keep|keeps|been)\s+dropping\s+(things|objects|cups|stuff|items)\b",
     ],
     "major_trauma": [
         r"\b(fall|fell|crash|crashed|accident|collision|trauma|hit)\b.{0,80}\b(severe|weakness|numbness|can't walk|cannot walk|unable to walk|deformity)\b",
@@ -1964,8 +1978,16 @@ def _red_flag_response(reasons: List[str]) -> str:
     )
 
 
+# Medication/dosage boundary. Deliberately does NOT contain a bare "should i take" —
+# that matched ordinary MSK questions ("Should I take a rest day?", "should I take it
+# easy?") and refused them as medication advice. The verb now has to govern an actual
+# drug or medication object; naming any drug/dose term on its own still trips the gate.
 _MEDICATION_ADVICE_RE = re.compile(
-    r"\b(should i take|can i take|dose|dosage|mg|milligram|ibuprofen|advil|naproxen|aleve|tylenol|acetaminophen|opioid|muscle relaxer|steroid|steroids|steroid injection|prescription)\b",
+    r"\b(dose|dosage|mg|milligram|ibuprofen|advil|naproxen|aleve|tylenol|acetaminophen|paracetamol|"
+    r"aspirin|opioids?|painkillers?|muscle relaxers?|muscle relaxants?|steroids?|steroid injection|"
+    r"cortisone|prescription|nsaids?)\b"
+    r"|\b(should|can|could|may)\s+i\s+take\b[^.?!]{0,40}\b(medication|medicine|meds|pills?|"
+    r"anti-?inflammator(?:y|ies)|something for (?:the |my )?pain)\b",
     re.I,
 )
 
@@ -2527,11 +2549,15 @@ def ask_openai_llm(
             code = _classify_openai_error(stream_err)
             if code:
                 raise OpenAIKeyError(f"Generation request failed: {stream_err}", code=code) from stream_err
-            # Only fall back for streaming-specific issues, not API errors
-            err_str = str(stream_err)
-            if "invalid" in err_str.lower() or "400" in err_str:
+            # A genuine 4xx (bad request / unknown model) will fail identically without
+            # streaming, so don't burn a second call on it. Detect it by the SDK's
+            # status_code rather than sniffing the message for "400"/"invalid" — those
+            # substrings also appear in transient errors ("port 8400", "cache invalidated"),
+            # which used to be misrouted here and skip the non-streaming retry.
+            status = getattr(stream_err, "status_code", None)
+            if isinstance(status, int) and 400 <= status < 500:
                 raise RuntimeError(f"OpenAI API error: {stream_err}")
-            # Fall back to non-streaming for other issues
+            # Any other failure (transient 5xx, connection reset, timeout) → retry non-streaming.
 
 
     # If streaming already emitted partial tokens but then failed, do NOT retry
@@ -2826,10 +2852,16 @@ def generate_answer_with_fallback(
                     logger.warning("pinned openai model %s returned empty output; using evidence-only", model)
                 else:
                     return text, pt, ot, "llm:openai", model
-            except OpenAIKeyError as exc:
+            except Exception as exc:
+                # Any failure — dead key, unknown model id (the UI accepts custom model
+                # strings), network error — degrades to the evidence-only answer. Only a
+                # mid-stream failure is re-raised, since the client already has tokens.
                 if tokens_emitted > 0:
                     raise
-                logger.warning("pinned openai model unavailable (%s); using evidence-only", exc)
+                logger.warning(
+                    "pinned openai model %s unavailable (%s: %s); using evidence-only",
+                    model, type(exc).__name__, exc,
+                )
         else:
             spec = _provider_spec_for(pinned, pinned_model)
             if spec is None:
@@ -2862,10 +2894,17 @@ def generate_answer_with_fallback(
         if not _empty(text):
             return text, pt, ot, "llm:openai", cfg.openai_model
         logger.warning("openai generation returned empty output; trying fallback providers")
-    except OpenAIKeyError as exc:
+    except Exception as exc:
+        # Catch broadly, not just OpenAIKeyError: a transient 5xx, a connection reset, or
+        # a rejected model/parameter would otherwise escape the whole ladder (free
+        # providers AND evidence-only) and surface as a hard 500 — the exact "dead demo"
+        # this chain exists to prevent. Mid-stream failures still re-raise.
         if tokens_emitted > 0:
             raise
-        logger.warning("openai generation unavailable (%s); trying fallback providers", exc)
+        logger.warning(
+            "openai generation unavailable (%s: %s); trying fallback providers",
+            type(exc).__name__, exc,
+        )
 
     # 2) Free OpenAI-compatible providers, in priority order.
     for spec in _configured_providers():
@@ -2929,7 +2968,8 @@ def run_qa(
     # Multi-query expansion is only used when initial confidence is weak — and never
     # when degraded to BM25-only, since it needs both the utility LLM and embeddings.
     initial_confidence = raw_top_confidence(raw)
-    if not _retrieval_degraded.get() and initial_confidence < MULTI_QUERY_TRIGGER_CONFIDENCE:
+    primary_degraded = _retrieval_degraded.get()
+    if not primary_degraded and initial_confidence < MULTI_QUERY_TRIGGER_CONFIDENCE:
         alt_queries = generate_multi_queries(question, n=MULTI_QUERY_COUNT)
         alt_pool = max(1, int(cfg.retrieval_pool * MULTI_QUERY_RETRIEVAL_RATIO))
         alt_raws = [raw]
@@ -2937,7 +2977,10 @@ def run_qa(
             alt_raws.append(hybrid_search(alt_q, coll, retrieval_pool=alt_pool))
         raw = merge_raw_results(*alt_raws)
 
-    retrieval_mode = "bm25_only" if _retrieval_degraded.get() else "hybrid"
+    # Report degradation based on the PRIMARY retrieval only. A single alt-query
+    # embedding failing during expansion would otherwise flip the flag and mislabel a
+    # successful dense+BM25 hybrid run as `bm25_only`.
+    retrieval_mode = "bm25_only" if primary_degraded else "hybrid"
     retrieval_time = time.time() - t0
 
     if not raw or not raw.get("documents") or not raw["documents"][0]:
