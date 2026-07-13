@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
@@ -8,11 +9,27 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 from graph_vocab import SCHEMA_VERSION, alias_patterns, all_entities, detect_entities
 
 
+logger = logging.getLogger(__name__)
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_GRAPH_DIR = PROJECT_ROOT / "MSKArticlesINDEX" / "graph"
 DEFAULT_HIERARCHICAL_DIR = PROJECT_ROOT / "MSKArticlesINDEX" / "hierarchical"
 SUPPORT_SCORE = {"direct": 5, "indirect": 4, "inferred_from_same_section": 3, "inferred_from_path": 2, "weak": 1, "unsupported": 0}
 CLAIM_SCORE = {"strong": 4, "moderate": 3, "weak": 2, "speculative": 1}
+
+# Parsed artifacts are static at runtime but cost ~8MB of JSON parsing per load, which
+# previously happened on every request. Cache by (path, mtime, size) so a rebuilt
+# artifact is picked up without a restart.
+_GRAPH_CACHE: Dict[Any, Dict[str, Any]] = {}
+_SPAN_CACHE: Dict[Any, Dict[str, Dict[str, Any]]] = {}
+
+
+def _cache_key(path: Path) -> Any:
+    try:
+        st = path.stat()
+        return (str(path.resolve()), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (str(path), None, None)
 
 
 def _is_loose_co_mention(edge: Dict[str, Any]) -> bool:
@@ -20,8 +37,22 @@ def _is_loose_co_mention(edge: Dict[str, Any]) -> bool:
 
 
 def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
+    """Parse a JSONL artifact, skipping (and logging) individual malformed lines.
+
+    A single corrupt line must not take down the whole graph: these artifacts are
+    generated files, and one bad line previously raised JSONDecodeError out of
+    load_graph, silently disabling graph context entirely.
+    """
+    rows: List[Dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+        for lineno, line in enumerate(f, start=1):
+            if not line.strip():
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                logger.warning("skipping malformed line %d in %s: %s", lineno, path.name, exc)
+    return rows
 
 
 def _token_estimate(text: str) -> int:
@@ -35,6 +66,11 @@ def load_graph(base_dir: str | Path = DEFAULT_GRAPH_DIR) -> Dict[str, Any]:
     if missing:
         return {"available": False, "fallback_reason": "graph_artifacts_missing", "missing": missing}
 
+    cache_key = tuple(_cache_key(base / name) for name in required)
+    cached = _GRAPH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         nodes = _read_jsonl(base / "nodes.jsonl")
         edges = _read_jsonl(base / "edges.jsonl")
@@ -43,6 +79,9 @@ def load_graph(base_dir: str | Path = DEFAULT_GRAPH_DIR) -> Dict[str, Any]:
         manifest = json.loads((base / "graph_manifest.json").read_text(encoding="utf-8"))
     except Exception as exc:
         return {"available": False, "fallback_reason": f"graph_load_error:{type(exc).__name__}"}
+
+    if not nodes:
+        return {"available": False, "fallback_reason": "graph_nodes_empty"}
 
     node_by_id = {str(node.get("node_id")): node for node in nodes}
     edges_by_node: Dict[str, List[Dict[str, Any]]] = {}
@@ -55,7 +94,7 @@ def load_graph(base_dir: str | Path = DEFAULT_GRAPH_DIR) -> Dict[str, Any]:
         for node_id in path.get("node_ids") or []:
             paths_by_node.setdefault(str(node_id), []).append(path)
 
-    return {
+    graph = {
         "available": True,
         "fallback_reason": None,
         "base_dir": str(base),
@@ -69,6 +108,8 @@ def load_graph(base_dir: str | Path = DEFAULT_GRAPH_DIR) -> Dict[str, Any]:
         "edges_by_node": edges_by_node,
         "paths_by_node": paths_by_node,
     }
+    _GRAPH_CACHE[cache_key] = graph
+    return graph
 
 
 def find_nodes(query: str, graph: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -122,7 +163,13 @@ def _load_spans_by_id(hierarchical_dir: str | Path = DEFAULT_HIERARCHICAL_DIR) -
     path = Path(hierarchical_dir) / "evidence_spans.jsonl"
     if not path.exists():
         return {}
-    return {str(row.get("span_id")): row for row in _read_jsonl(path)}
+    cache_key = _cache_key(path)
+    cached = _SPAN_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    spans = {str(row.get("span_id")): row for row in _read_jsonl(path)}
+    _SPAN_CACHE[cache_key] = spans
+    return spans
 
 
 def get_supporting_spans_for_path(path_id: str, graph: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:

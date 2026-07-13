@@ -620,6 +620,21 @@ async function sendQuestion() {
     let streamMeta = null;
     const streamStart = performance.now();
 
+    // Re-parsing the whole answer through marked + DOMPurify and rebuilding the DOM on
+    // every token is O(n²) over the answer length and janks the tab on long replies.
+    // Coalesce to at most one render per animation frame; the final render after the
+    // stream ends guarantees the last tokens are always painted.
+    let renderPending = false;
+    function scheduleRender() {
+        if (renderPending) return;
+        renderPending = true;
+        requestAnimationFrame(() => {
+            renderPending = false;
+            bubble.innerHTML = renderMarkdown(fullText);
+            scrollIfNeeded();
+        });
+    }
+
     // Build headers — include JWT if logged in
     const headers = { "Content-Type": "application/json" };
     if (AUTH_ENABLED && accessToken) {
@@ -675,8 +690,7 @@ async function sendQuestion() {
                             streamMeta = obj;
                         } else if (obj.token) {
                             fullText += obj.token;
-                            bubble.innerHTML = renderMarkdown(fullText);
-                            scrollIfNeeded();
+                            scheduleRender();
                         }
                     } catch { /* skip */ }
                 }
@@ -696,19 +710,37 @@ async function sendQuestion() {
             : "";
 
         const errorCode = streamMeta && streamMeta.error_code;
-        const typingEl = bubble.querySelector(".typing-indicator");
-        if (typingEl) {
-            if (errorCode === "api_key_unavailable") {
-                renderApiKeyError(bubble, streamMeta && streamMeta.error, requestIdNote);
-            } else if (!isComplete) {
-                bubble.innerHTML = `<p>⚠️ ${escapeHtml((streamMeta && streamMeta.error) || "Response interrupted before completion.")}${requestIdNote}</p>`;
-            } else if (assistantText) {
+
+        // NOTE: do NOT gate this on the typing indicator still being present. The first
+        // streamed token replaces the bubble's innerHTML and destroys it, so a mid-stream
+        // failure used to skip every branch below — the user was left looking at a
+        // truncated clinical answer with no indication it had been cut off.
+        if (errorCode === "api_key_unavailable" && !assistantText) {
+            renderApiKeyError(bubble, streamMeta && streamMeta.error, requestIdNote);
+        } else if (!isComplete || hasStreamError) {
+            const msg = (streamMeta && streamMeta.error) || "Response interrupted before completion.";
+            if (assistantText) {
+                // Partial answer already on screen: keep it, but mark it clearly as incomplete.
                 bubble.innerHTML = renderMarkdown(fullText);
-            } else if (hasStreamError) {
-                bubble.innerHTML = `<p>⚠️ ${escapeHtml(streamMeta.error)}${requestIdNote}</p>`;
+                const warn = document.createElement("p");
+                warn.className = "stream-error";
+                warn.innerHTML = `⚠️ ${escapeHtml(msg)}${requestIdNote}<br><small>This answer is incomplete — do not rely on it. Please resend.</small>`;
+                bubble.appendChild(warn);
+                if (errorCode === "api_key_unavailable") {
+                    const cta = document.createElement("button");
+                    cta.type = "button";
+                    cta.className = "key-action key-cta";
+                    cta.textContent = "Add your OpenAI key";
+                    cta.addEventListener("click", openApiKeyPanel);
+                    bubble.appendChild(cta);
+                }
             } else {
-                bubble.innerHTML = `<p>⚠️ No response received.</p>`;
+                bubble.innerHTML = `<p>⚠️ ${escapeHtml(msg)}${requestIdNote}</p>`;
             }
+        } else if (assistantText) {
+            bubble.innerHTML = renderMarkdown(fullText);
+        } else {
+            bubble.innerHTML = `<p>⚠️ No response received.</p>`;
         }
 
         if (isComplete && !hasStreamError && streamMeta && streamMeta.citations && streamMeta.citations.length > 0) {
@@ -1124,7 +1156,8 @@ function renderMarkdownFallback(text) {
 
 function escapeHtml(str) {
     const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" };
-    return str.replace(/[&<>"']/g, c => map[c]);
+    // Coerce: callers pass err.message (can be undefined) and server-supplied fields.
+    return String(str ?? "").replace(/[&<>"']/g, c => map[c]);
 }
 
 // ── Event bindings ───────────────────────────────────────────────────────────

@@ -1328,6 +1328,20 @@ button {
 .key-action-ghost { color: var(--ink-2); }
 .key-action:hover { border-color: var(--green-line); }
 
+/* Interruption notice appended below a partially-streamed answer. Must read as a
+   warning, not as part of the clinical content above it. */
+.stream-error {
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.85rem;
+    color: var(--ink);
+    background: rgba(180, 83, 9, 0.10);
+    border: 1px solid rgba(180, 83, 9, 0.45);
+    border-radius: var(--r-sm, 8px);
+}
+
+.stream-error small { color: var(--ink-2); }
+
 .key-remember {
     display: inline-flex;
     align-items: center;
