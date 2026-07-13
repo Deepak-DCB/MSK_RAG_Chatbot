@@ -883,6 +883,24 @@ _SENTINEL = object()
 
 STREAM_IDLE_TIMEOUT = 60    # max gap between tokens
 STREAM_TOTAL_TIMEOUT = 120  # max total stream duration (the documented cap)
+STREAM_JOIN_TIMEOUT = 5     # how long to wait for the worker to wind down
+
+
+class _StreamCancelled(BaseException):
+    """Cooperative cancellation signal for the generation worker.
+
+    Raised from `on_token` once the SSE consumer is gone (timeout or client
+    disconnect). Python cannot kill a thread, and the only hook the provider
+    architecture calls on every streamed chunk is `on_token` — so that is the
+    cancellation point. Raising there unwinds out of the provider's chunk loop,
+    which stops consuming the response and stops the billing clock.
+
+    Subclasses BaseException *deliberately*: qaEngine's `except Exception` handlers
+    in ask_openai_llm() and generate_answer_with_fallback() must NOT swallow this,
+    or a cancellation would be misread as a provider failure and would kick off the
+    fallback chain — starting a brand-new generation for a client that has already
+    gone away, which is the exact leak this is meant to close.
+    """
 
 
 def _timeout_event(request_id: str, reason: str) -> str:
@@ -915,15 +933,34 @@ def ask_stream(req: AskRequest, request: Request,
 
     token_q: queue.Queue = queue.Queue()
     result_holder: Dict[str, Any] = {}
+    cancel_event = threading.Event()
 
     def on_token(tok: str):
+        # Cancellation point. Once the consumer is gone there is nobody to receive this
+        # token, so abandon the provider stream instead of generating (and paying) into
+        # a queue no one reads.
+        if cancel_event.is_set():
+            raise _StreamCancelled()
         token_q.put(tok)
+
+    def check_cancelled():
+        if cancel_event.is_set():
+            raise _StreamCancelled()
+
+    # qaEngine uses this private hook between provider attempts. It reuses the same
+    # BaseException cancellation path without changing the public generation API or
+    # treating cancellation as an ordinary provider failure.
+    on_token.check_cancelled = check_cancelled
 
     def run_engine():
         try:
             res = agentic_run(question, cfg=cfg, history=history, on_token=on_token,
                               conversation_summary=conversation_summary)
             result_holder.update(res)
+        except _StreamCancelled:
+            # Expected, not an error: the client went away and we unwound the provider.
+            logger.info("ask_stream: generation cancelled, consumer gone [request_id=%s]", request_id)
+            result_holder["cancelled"] = True
         except OpenAIKeyError as exc:
             logger.warning("ask_stream: OpenAI key unavailable [request_id=%s] code=%s", request_id, exc.code)
             result_holder["error"] = "The service's API key is currently unavailable or out of quota."
@@ -936,9 +973,42 @@ def ask_stream(req: AskRequest, request: Request,
         finally:
             token_q.put(_SENTINEL)
 
-    threading.Thread(target=run_engine, daemon=True).start()
+    worker = threading.Thread(target=run_engine, daemon=True)
+    worker.start()
+
+    def _reap_worker():
+        """Wind the generation worker down. Runs on EVERY exit path — normal completion,
+        either deadline, and client disconnect (StreamingResponse closes the generator,
+        so the `finally` below fires).
+
+        On normal completion the worker has already exited and this is a no-op join.
+        Otherwise it flips the cancel flag, so the worker aborts at its next token
+        instead of running to completion and billing for output nobody will read.
+
+        A worker still alive after the join is one blocked *inside* the provider call
+        with no token yet delivered — cooperative cancellation cannot reach it, which is
+        why the client-side request timeout (qaEngine.OPENAI_TIMEOUT_SECONDS) is the
+        backstop that bounds it.
+        """
+        cancel_event.set()
+        worker.join(timeout=STREAM_JOIN_TIMEOUT)
+        if worker.is_alive():
+            logger.warning(
+                "ask_stream: worker still running after %ss; blocked inside the provider "
+                "call, bounded by the client request timeout [request_id=%s]",
+                STREAM_JOIN_TIMEOUT, request_id,
+            )
 
     def event_stream():
+        # Thin wrapper so the worker is reaped on EVERY exit: normal completion, either
+        # deadline, an exception, or the client disconnecting (StreamingResponse closes
+        # the generator, which raises GeneratorExit through this `finally`).
+        try:
+            yield from _stream_body()
+        finally:
+            _reap_worker()
+
+    def _stream_body():
         # Two independent deadlines. The old code passed timeout=120 to a get() inside the
         # loop, which reset on every token — so a provider trickling one token a minute
         # could hold the worker forever and the documented 120s cap enforced nothing.

@@ -57,6 +57,54 @@ def test_red_flag_still_ignores_negated_and_general_info(prompt):
     assert detect_red_flags(prompt) == []
 
 
+# ── Safety gate: standalone breathing symptoms ───────────────────────────────
+#
+# Every severe_chest_or_breathing pattern required chest pain to CO-OCCUR, so a bare
+# "I am having trouble breathing" escaped the gate entirely. AGENTS.md already lists
+# "severe chest pain or breathing symptoms" as an escalation criterion and the reason
+# label already read "breathing symptoms" — this closed a code-vs-policy gap.
+
+@pytest.mark.parametrize("prompt", [
+    "I am having trouble breathing",
+    "I have shortness of breath",
+    "I cannot breathe properly",
+    "I am short of breath",
+    "I am struggling to breathe",
+    "I cant catch my breath",
+    "gasping for air",
+    "I feel breathless",
+])
+def test_red_flag_catches_standalone_breathing_symptoms(prompt):
+    assert "severe_chest_or_breathing" in detect_red_flags(prompt)
+
+
+@pytest.mark.parametrize("prompt", [
+    "severe chest pain",
+    "chest pain and trouble breathing",
+    "chest tightness with shortness of breath",
+    "shortness of breath with chest pain",
+])
+def test_red_flag_still_catches_existing_chest_and_combined_cases(prompt):
+    assert "severe_chest_or_breathing" in detect_red_flags(prompt)
+
+
+@pytest.mark.parametrize("prompt", [
+    # The corpus itself is ABOUT breathing mechanics — first-rib elevation, scalene
+    # function, thoracic expansion. Matching the mechanism instead of the symptom would
+    # escalate the product's own subject matter and make it useless.
+    "How do breathing mechanics affect thoracic outlet syndrome?",
+    "What breathing exercises help scalene function?",
+    "Explain diaphragmatic breathing for rib mechanics",
+    "Does poor breathing pattern cause first rib elevation failure?",
+    # Negation and general-education controls must survive the broadening.
+    "No trouble breathing, no chest pain, just neck stiffness.",
+    "I have no shortness of breath at all.",
+    "When should shortness of breath be urgent?",
+])
+def test_breathing_gate_does_not_over_escalate(prompt):
+    assert detect_red_flags(prompt) == []
+
+
 # ── Scope gate: medication boundary must not swallow exercise questions ───────
 
 @pytest.mark.parametrize("prompt", [
@@ -170,6 +218,33 @@ def test_one_malformed_line_does_not_disable_the_whole_graph(tmp_path):
 
     assert graph["available"] is True
     assert [n["node_id"] for n in graph["nodes"]] == ["n2"]  # bad line skipped, not fatal
+
+
+def test_valid_json_that_is_not_an_object_is_skipped_not_fatal(tmp_path):
+    """A bare string/number/list/null parses as valid JSON, so it used to survive into
+    `nodes` and then raise AttributeError on node.get(...) inside load_graph — OUTSIDE
+    its try/except — taking the whole graph down by a route the JSONDecodeError guard
+    never covered."""
+    good = {"node_id": "n1", "canonical_name": "brachial plexus", "node_type": "nerve"}
+
+    (tmp_path / "nodes.jsonl").write_text(
+        "\n".join([
+            '"just a string"',   # valid JSON, not an object
+            "123",               # valid JSON, not an object
+            "[1, 2, 3]",         # valid JSON, not an object
+            "null",              # valid JSON, not an object
+            json.dumps(good),
+        ]) + "\n",
+        encoding="utf-8",
+    )
+    for name in ("edges.jsonl", "paths.jsonl", "claims.jsonl"):
+        (tmp_path / name).write_text("", encoding="utf-8")
+    (tmp_path / "graph_manifest.json").write_text("{}", encoding="utf-8")
+
+    graph = graph_retrieval.load_graph(tmp_path)
+
+    assert graph["available"] is True, "non-object rows must not disable the graph"
+    assert [n["node_id"] for n in graph["nodes"]] == ["n1"]
 
 
 def test_real_concept_graph_loads_and_finds_mechanism_paths():

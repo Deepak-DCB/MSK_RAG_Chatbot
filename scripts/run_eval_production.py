@@ -1292,13 +1292,22 @@ def summarize_run(
     }
 
     graph_entries = [c.get("retrieval", {}).get("graph", {}) for c in cases]
-    graph_available_vals = [1.0 if entry.get("graph_available") else 0.0 for entry in graph_entries]
-    graph_path_vals = [1.0 if int(entry.get("graph_path_count") or 0) > 0 else 0.0 for entry in graph_entries]
-    graph_span_vals = [1.0 if int(entry.get("graph_supporting_span_count") or 0) > 0 else 0.0 for entry in graph_entries]
-    graph_fallback_vals = [1.0 if entry.get("graph_fallback_reason") else 0.0 for entry in graph_entries]
-    graph_token_vals = [int(entry.get("graph_context_token_estimate") or 0) for entry in graph_entries if entry.get("graph_context_token_estimate") is not None]
-    total_context_token_vals = [int(entry.get("total_context_token_estimate") or 0) for entry in graph_entries if entry.get("total_context_token_estimate") is not None]
+    # Dry-run records deliberately carry graph_fallback_reason=dry_run_no_runtime because
+    # no runtime artifacts are loaded. Exclude those rows from graph rates: treating their
+    # graph_available=false values as observations would report a measured 0.0 availability
+    # for a domain that was never evaluated.
+    evaluated_graph_entries = [
+        entry for entry in graph_entries
+        if entry.get("graph_fallback_reason") != "dry_run_no_runtime"
+    ]
+    graph_available_vals = [1.0 if entry.get("graph_available") else 0.0 for entry in evaluated_graph_entries]
+    graph_path_vals = [1.0 if int(entry.get("graph_path_count") or 0) > 0 else 0.0 for entry in evaluated_graph_entries]
+    graph_span_vals = [1.0 if int(entry.get("graph_supporting_span_count") or 0) > 0 else 0.0 for entry in evaluated_graph_entries]
+    graph_fallback_vals = [1.0 if entry.get("graph_fallback_reason") else 0.0 for entry in evaluated_graph_entries]
+    graph_token_vals = [int(entry.get("graph_context_token_estimate") or 0) for entry in evaluated_graph_entries if entry.get("graph_context_token_estimate") is not None]
+    total_context_token_vals = [int(entry.get("total_context_token_estimate") or 0) for entry in evaluated_graph_entries if entry.get("total_context_token_estimate") is not None]
     graph_metrics = {
+        "evaluated_cases": len(evaluated_graph_entries),
         "graph_available_rate": statistics.mean(graph_available_vals) if graph_available_vals else NOT_EVALUATED,
         "graph_path_presence_rate": statistics.mean(graph_path_vals) if graph_path_vals else NOT_EVALUATED,
         "graph_supporting_span_presence_rate": statistics.mean(graph_span_vals) if graph_span_vals else NOT_EVALUATED,

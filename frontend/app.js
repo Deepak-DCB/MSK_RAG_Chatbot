@@ -624,15 +624,37 @@ async function sendQuestion() {
     // every token is O(n²) over the answer length and janks the tab on long replies.
     // Coalesce to at most one render per animation frame; the final render after the
     // stream ends guarantees the last tokens are always painted.
+    //
+    // A queued frame MUST NOT survive finalization. Finalization runs synchronously when
+    // the read loop exits and it *appends* to the bubble (incomplete-stream warning,
+    // citations, evidence spans, mechanism graph, telemetry, feedback). A frame queued by
+    // the last token would fire afterwards and clobber the bubble's innerHTML, silently
+    // erasing all of it — including the "this answer is incomplete" warning. So
+    // finalizeRender() both cancels the queued frame and latches a flag, and any callback
+    // that still runs becomes a no-op.
     let renderPending = false;
+    let renderHandle = null;
+    let streamFinalized = false;
+
     function scheduleRender() {
-        if (renderPending) return;
+        if (streamFinalized || renderPending) return;
         renderPending = true;
-        requestAnimationFrame(() => {
+        renderHandle = requestAnimationFrame(() => {
             renderPending = false;
+            renderHandle = null;
+            if (streamFinalized) return;
             bubble.innerHTML = renderMarkdown(fullText);
             scrollIfNeeded();
         });
+    }
+
+    function finalizeRender() {
+        streamFinalized = true;
+        if (renderHandle !== null) {
+            cancelAnimationFrame(renderHandle);
+            renderHandle = null;
+        }
+        renderPending = false;
     }
 
     // Build headers — include JWT if logged in
@@ -700,6 +722,10 @@ async function sendQuestion() {
         if (buffer.startsWith("data: ") && !streamMeta) {
             try { streamMeta = JSON.parse(buffer.slice(6)); } catch { }
         }
+
+        // Past this point the bubble is owned by finalization, which appends warnings,
+        // citations, telemetry and feedback. Kill any frame the last token queued.
+        finalizeRender();
 
         const endToEnd = ((performance.now() - streamStart) / 1000).toFixed(2);
         const assistantText = fullText.trim();
@@ -769,8 +795,11 @@ async function sendQuestion() {
         }
 
     } catch (err) {
+        // A frame queued mid-stream would otherwise repaint over this error.
+        finalizeRender();
         bubble.innerHTML = `<p>⚠️ Network error: ${escapeHtml(err.message)}</p>`;
     } finally {
+        finalizeRender();  // idempotent; also covers the early `!res.ok` return
         isLoading = false;
         sendBtn.disabled = false;
         textarea.focus();
