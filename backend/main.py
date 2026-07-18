@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "VectorDB"))
 
+import qaEngine  # noqa: E402
 from qaEngine import (  # noqa: E402
     OPENAI_MODEL,
     OpenAIKeyError,
@@ -885,6 +886,27 @@ _SENTINEL = object()
 STREAM_IDLE_TIMEOUT = 60    # max gap between tokens
 STREAM_TOTAL_TIMEOUT = 120  # max total stream duration (the documented cap)
 STREAM_JOIN_TIMEOUT = 5     # how long to wait for the worker to wind down
+
+
+def _clamp_provider_timeout() -> None:
+    """Enforce OPENAI_TIMEOUT_SECONDS <= STREAM_TOTAL_TIMEOUT at startup.
+
+    The provider timeout is env-tunable but the stream deadlines are a fixed
+    contract (docs/opencode/context/runtime-contracts.md): a provider call must
+    never be allowed to outlive the stream that is waiting on it, otherwise a
+    worker blocked before its first token has nothing bounding it within the
+    stream's lifetime. Clamp rather than crash — a misconfigured timeout should
+    not take the whole service down.
+    """
+    if qaEngine.OPENAI_TIMEOUT_SECONDS > STREAM_TOTAL_TIMEOUT:
+        logger.warning(
+            "OPENAI_TIMEOUT_SECONDS=%s exceeds STREAM_TOTAL_TIMEOUT=%s; clamping to %s",
+            qaEngine.OPENAI_TIMEOUT_SECONDS, STREAM_TOTAL_TIMEOUT, STREAM_TOTAL_TIMEOUT,
+        )
+        qaEngine.OPENAI_TIMEOUT_SECONDS = STREAM_TOTAL_TIMEOUT
+
+
+_clamp_provider_timeout()
 
 
 class _StreamCancelled(BaseException):
