@@ -163,3 +163,34 @@ def test_provider_calls_are_bounded_by_a_client_timeout():
         "the provider timeout must sit under the stream deadline; past it nobody is "
         "listening to the response anyway"
     )
+
+
+def test_startup_clamp_enforces_provider_timeout_invariant(monkeypatch, caplog):
+    """The invariant above only checked the code's *defaults*. OPENAI_TIMEOUT_SECONDS is
+    env-tunable, so a Render env change alone (e.g. OPENAI_TIMEOUT_SECONDS=150) could
+    silently break it in production. The startup clamp is the runtime guard."""
+    import logging
+
+    import qaEngine
+
+    monkeypatch.setattr(
+        qaEngine, "OPENAI_TIMEOUT_SECONDS", backend_main.STREAM_TOTAL_TIMEOUT + 30
+    )
+    with caplog.at_level(logging.WARNING, logger="backend.main"):
+        backend_main._clamp_provider_timeout()
+
+    assert qaEngine.OPENAI_TIMEOUT_SECONDS <= backend_main.STREAM_TOTAL_TIMEOUT
+    assert any("clamping" in rec.message for rec in caplog.records)
+
+
+def test_startup_clamp_leaves_valid_timeout_untouched(monkeypatch, caplog):
+    import logging
+
+    import qaEngine
+
+    monkeypatch.setattr(qaEngine, "OPENAI_TIMEOUT_SECONDS", 45)
+    with caplog.at_level(logging.WARNING, logger="backend.main"):
+        backend_main._clamp_provider_timeout()
+
+    assert qaEngine.OPENAI_TIMEOUT_SECONDS == 45
+    assert not caplog.records
