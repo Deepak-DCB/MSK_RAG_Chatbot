@@ -163,10 +163,24 @@ function loadApp(sandbox) {
   return sandbox;
 }
 
+// Replace the sandbox console with one that records error() calls, so tests can
+// assert what app.js surfaces to the console without spamming the test output.
+function spyConsole(sandbox) {
+  const errors = [];
+  sandbox.console = {
+    log: () => {},
+    info: () => {},
+    warn: () => {},
+    error: (...args) => { errors.push(args.map(String).join(" ")); },
+  };
+  return errors;
+}
+
 // Drive sendQuestion() against a scripted SSE response, pumping frames afterwards.
-async function runStream({ chunks, pumpDuringStream = false }) {
+async function runStream({ chunks, pumpDuringStream = false, spy = false }) {
   const { sandbox, pumpFrames, getEl } = makeSandbox();
   const bubble = new El();
+  const consoleErrors = spy ? spyConsole(sandbox) : [];
 
   loadApp(sandbox);
 
@@ -193,7 +207,7 @@ async function runStream({ chunks, pumpDuringStream = false }) {
   // The hostile move: a frame queued by the final token now fires, AFTER finalization.
   const pumpedAfterFinalize = pumpFrames();
 
-  return { bubble, sandbox, pumpedAfterFinalize };
+  return { bubble, sandbox, pumpedAfterFinalize, consoleErrors };
 }
 
 const tok = (t) => `data: ${JSON.stringify({ token: t })}\n\n`;
@@ -283,6 +297,45 @@ test("a failed stream is not committed to conversation history", async () => {
   });
   const hist = vm.runInContext("history", sandbox);
   assert.equal(hist.length, 0, "an incomplete answer must not enter multi-turn history");
+});
+
+test("a malformed done payload logs a console.error (contract break must be visible)", async () => {
+  const { consoleErrors, bubble } = await runStream({
+    chunks: [tok("partial answer "), "event: done\ndata: not-json\n\n"],
+    spy: true,
+  });
+  assert.ok(
+    consoleErrors.some((m) => m.includes("Failed to parse SSE done payload")),
+    `a broken done payload must be surfaced in the console; got: ${JSON.stringify(consoleErrors)}`
+  );
+  // With no parseable metadata the stream must still be treated as incomplete.
+  assert.ok(bubble.querySelector(".stream-error"), "unparseable done => incomplete warning");
+});
+
+test("one malformed token line stays silent by design and does not kill the stream", async () => {
+  const { consoleErrors, bubble } = await runStream({
+    chunks: [tok("a"), "data: {broken\n\n", tok("b"), done(OK_META)],
+    pumpDuringStream: true,
+    spy: true,
+  });
+  assert.equal(consoleErrors.length, 0,
+    `a single bad token line must not spam the console; got: ${JSON.stringify(consoleErrors)}`);
+  assert.match(bubble.innerHTML, /ab/, "surviving tokens must still render");
+});
+
+test("checkHealth logs the underlying error instead of swallowing it", async () => {
+  // loadSidebarHistory has the same fix, but its fetch path is unreachable while
+  // AUTH_ENABLED is a top-level const=false (guest-only build), so only checkHealth
+  // can be driven end-to-end here.
+  const { sandbox } = makeSandbox();
+  const errors = spyConsole(sandbox);
+  loadApp(sandbox);
+  sandbox.fetch = async () => { throw new Error("net down"); };
+
+  await vm.runInContext("checkHealth()", sandbox);
+
+  assert.ok(errors.some((m) => m.includes("checkHealth failed")), `got: ${JSON.stringify(errors)}`);
+  assert.ok(errors.some((m) => m.includes("net down")), "the real cause must be included");
 });
 
 // ── Runner ───────────────────────────────────────────────────────────────────

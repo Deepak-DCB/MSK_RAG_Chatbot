@@ -560,7 +560,8 @@ async function loadSidebarHistory() {
             });
             sidebarChats.appendChild(btn);
         });
-    } catch {
+    } catch (e) {
+        console.error("loadSidebarHistory failed:", e);
         sidebarChats.innerHTML = '<p class="sidebar-empty">Network error</p>';
     }
 }
@@ -575,7 +576,8 @@ async function checkHealth() {
         } else {
             statusText.textContent = "Offline";
         }
-    } catch {
+    } catch (e) {
+        console.error("checkHealth failed:", e);
         statusText.textContent = "Offline";
     }
 }
@@ -714,13 +716,24 @@ async function sendQuestion() {
                             fullText += obj.token;
                             scheduleRender();
                         }
-                    } catch { /* skip */ }
+                    } catch (e) {
+                        // One malformed token line is survivable; skip it silently.
+                        // A malformed done payload is a whole-response contract break
+                        // (metadata, citations, completion status all ride on it).
+                        if (gotDone) {
+                            console.error("Failed to parse SSE done payload:", e, line.slice(6, 206));
+                        }
+                    }
                 }
             }
         }
 
         if (buffer.startsWith("data: ") && !streamMeta) {
-            try { streamMeta = JSON.parse(buffer.slice(6)); } catch { }
+            try {
+                streamMeta = JSON.parse(buffer.slice(6));
+            } catch (e) {
+                console.error("Failed to parse SSE done payload:", e, buffer.slice(6, 206));
+            }
         }
 
         // Past this point the bubble is owned by finalization, which appends warnings,
