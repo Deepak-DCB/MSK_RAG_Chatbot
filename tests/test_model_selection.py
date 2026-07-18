@@ -185,3 +185,20 @@ def test_models_endpoint_returns_catalog():
     assert isinstance(data.get("providers"), list) and data["providers"]
     assert any(p["name"] == "openai" for p in data["providers"])
     assert "default_provider" in data and "default_model" in data
+
+
+def test_models_endpoint_fallback_reports_real_default_model(monkeypatch):
+    """The exception fallback must report the actual configured default, not a
+    second hardcoded literal that can drift (it shipped stale as gpt-4.1-mini)."""
+    from fastapi.testclient import TestClient
+
+    def _boom():
+        raise RuntimeError("catalog unavailable")
+
+    monkeypatch.setattr(main, "generation_catalog", _boom)
+    client = TestClient(main.app)
+    r = client.get("/models")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["providers"] == []
+    assert data["default_model"] == qaEngine.OPENAI_MODEL

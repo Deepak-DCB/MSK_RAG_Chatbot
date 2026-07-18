@@ -28,6 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "VectorDB"))
 
 from qaEngine import (  # noqa: E402
+    OPENAI_MODEL,
     OpenAIKeyError,
     QAConfig,
     _backend,
@@ -714,7 +715,7 @@ def models():
         return generation_catalog()
     except Exception:
         logger.exception("generation_catalog failed")
-        return {"providers": [], "default_provider": "openai", "default_model": "gpt-4.1-mini"}
+        return {"providers": [], "default_provider": "openai", "default_model": OPENAI_MODEL}
 
 
 @app.post("/ask", response_model=AskResponse)
