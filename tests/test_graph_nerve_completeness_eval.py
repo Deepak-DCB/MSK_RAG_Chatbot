@@ -12,6 +12,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from scripts.eval_graph_nerve_completeness import REQUIRED_CASE_FIELDS, evaluate, load_cases
 
+from conftest import requires_graph_artifacts
+
 
 DATASET = PROJECT_ROOT / "datasets" / "graph-nerve-completeness-cases.jsonl"
 GRAPH_DIR = PROJECT_ROOT / "MSKArticlesINDEX" / "graph"
@@ -54,6 +56,7 @@ def test_nerve_completeness_dataset_loads_and_has_required_fields():
                 assert isinstance(case[field], list), f"{case['case_id']} field {field} must be a list"
 
 
+@requires_graph_artifacts
 def test_script_runs_and_writes_report_files(tmp_path):
     output_md = tmp_path / "report.md"
     output_json = tmp_path / "results.json"
@@ -270,6 +273,7 @@ def test_meaningful_forbidden_false_positives_fail_case(tmp_path):
     assert case["forbidden_false_positives"]["passed"] is False
 
 
+@requires_graph_artifacts
 def test_evaluation_does_not_mutate_graph_artifacts(tmp_path):
     graph_files = ["nodes.jsonl", "edges.jsonl", "paths.jsonl", "claims.jsonl"]
     before = {name: hash_file(GRAPH_DIR / name) for name in graph_files}

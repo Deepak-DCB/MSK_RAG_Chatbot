@@ -10,6 +10,10 @@ if str(PROJECT_ROOT / "VectorDB") not in sys.path:
 
 from graph_retrieval import build_graph_context
 
+from conftest import requires_graph_artifacts
+
+pytestmark = requires_graph_artifacts
+
 
 def read_cases():
     path = PROJECT_ROOT / "datasets" / "graph-coverage-cases.jsonl"
