@@ -180,7 +180,7 @@ Browser -> Vercel static frontend -> Render FastAPI backend -> ChromaDB + OpenAI
 
 - max question length: `1000`
 - max history turns: `5`
-- max output tokens: `1000`
+- max output tokens: `700` (lowered from 1000 after the faithfulness bake-off)
 - per-IP rate limit: `5 requests / 60s`
 - public request overrides restricted to reranker toggles only
 - proxy-aware client IP handling is supported when trusted proxy settings are configured
