@@ -1871,6 +1871,13 @@ _NEGATION_PREFIX_RE = re.compile(
     re.I,
 )
 
+# Contrastive conjunctions end a negation's scope the way a sentence boundary
+# does: in "I don't want to alarm anyone, but my numbness is spreading", the
+# "not" governs the hedge, not the symptom after the pivot. Without this check
+# any negation word within the lookback window suppressed escalation — a
+# false-negative on the safety gate (see docs/opencode/memory/safety-incidents.md).
+_CLAUSE_BREAK_RE = re.compile(r"\b(but|however|although|though|yet|except)\b", re.I)
+
 _GENERAL_INFO_RE = re.compile(
     r"^\s*(what are|what is|when should|how do|how does|explain|define|list|teach me|in general)\b",
     re.I,
@@ -1965,7 +1972,15 @@ def _is_negated(text: str, start: int) -> bool:
     prefix = text[max(0, start - 70):start]
     if re.search(r"\b(not|do not|don't)\s+need\s+urgent\s+care\s+for\s+$", prefix, flags=re.I):
         return False
-    return bool(_NEGATION_PREFIX_RE.search(prefix))
+    m = _NEGATION_PREFIX_RE.search(prefix)
+    if not m:
+        return False
+    # Escalation-only bias: if the clause pivots between the negation word and
+    # the symptom ("not to worry you, BUT my legs give out"), the negation does
+    # not reach the symptom — treat it as unnegated and escalate.
+    if _CLAUSE_BREAK_RE.search(prefix[m.end(1):]):
+        return False
+    return True
 
 
 def _has_unnegated_match(text: str, patterns: List[str]) -> bool:
