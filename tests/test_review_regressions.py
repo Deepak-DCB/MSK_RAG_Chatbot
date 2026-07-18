@@ -57,6 +57,43 @@ def test_red_flag_still_ignores_negated_and_general_info(prompt):
     assert detect_red_flags(prompt) == []
 
 
+# ── Safety gate: negation must not reach past a clause pivot ──────────────────
+#
+# The negation lookback treated ANY negation word within 70 chars as negating the
+# symptom, so discourse hedges ("I don't want to worry you, but...") suppressed
+# escalation on real emergency descriptions. The clause-break check ends a
+# negation's scope at a contrastive conjunction, the same way the character class
+# already ends it at a sentence boundary. Logged in
+# docs/opencode/memory/safety-incidents.md (2026-07-18).
+
+@pytest.mark.parametrize("prompt", [
+    "I do not want to worry you, but I have progressive weakness in my legs.",
+    "I do not want to alarm anyone, but my numbness is spreading up my legs.",
+    "Not to be dramatic, but I have new weakness in my hand this week.",
+    "I know this might sound silly and I do not want to overreact, but my legs give out when I walk.",
+])
+def test_red_flag_hedged_symptoms_still_escalate(prompt):
+    """All four returned [] before: the hedge's negation word swallowed the
+    symptom on the far side of the ', but' pivot."""
+    assert "progressive_neurologic_deficit" in detect_red_flags(prompt)
+
+
+@pytest.mark.parametrize("prompt", [
+    # Negation adjacent to the symptom, no pivot in between — must stay negated.
+    "I denies any recent progressive weakness.",
+    "I have no new bowel or bladder changes.",
+    "No numbness or tingling, just stiffness in my neck.",
+    "I have back pain without any loss of bladder control.",
+    # Pivot BEFORE the negation word (the common "claim, but no symptom" shape,
+    # e.g. redflag-031 in the gold set) — the clause-break check only inspects
+    # text after the negation cue, so these must remain suppressed.
+    "I have neck pain but no weakness or numbness in my arms.",
+])
+def test_clause_break_does_not_weaken_true_negations(prompt):
+    """Guard against overcorrecting toward zero-gap-only adjacency."""
+    assert detect_red_flags(prompt) == []
+
+
 # ── Safety gate: standalone breathing symptoms ───────────────────────────────
 #
 # Every severe_chest_or_breathing pattern required chest pain to CO-OCCUR, so a bare
