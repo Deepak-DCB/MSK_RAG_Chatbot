@@ -13,6 +13,10 @@ if str(PROJECT_ROOT / "VectorDB") not in sys.path:
 from graph_vocab import RELATION_TYPES, SUPPORT_LEVELS, all_entities
 from scripts.build_concept_graph import build_concept_graph
 
+from conftest import requires_hierarchical_artifacts
+
+pytestmark = requires_hierarchical_artifacts
+
 
 def read_jsonl(path: Path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]

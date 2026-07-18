@@ -10,7 +10,10 @@ if str(PROJECT_ROOT / "VectorDB") not in sys.path:
 import qaEngine
 from graph_retrieval import build_graph_context, find_nodes, load_graph
 
+from conftest import requires_graph_artifacts
 
+
+@requires_graph_artifacts
 def test_graph_retrieval_finds_tos_related_paths():
     pack = build_graph_context("How can scapular depression relate to thoracic outlet symptoms?")
     assert pack["available"] is True
@@ -21,6 +24,7 @@ def test_graph_retrieval_finds_tos_related_paths():
     assert "thoracic outlet" in path_text or "thoracic outlet" in edge_text or "costoclavicular" in path_text
 
 
+@requires_graph_artifacts
 def test_graph_retrieval_finds_relevant_nodes():
     graph = load_graph()
     for query, expected in [
@@ -33,6 +37,7 @@ def test_graph_retrieval_finds_relevant_nodes():
         assert any(expected in name for name in names)
 
 
+@requires_graph_artifacts
 def test_graph_retrieval_avoids_known_broad_alias_false_positives():
     graph = load_graph()
 

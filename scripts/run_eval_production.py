@@ -37,7 +37,7 @@ else:
     QAConfig = Any
 
 
-DEFAULT_DATASET = PROJECT_ROOT / "Eval" / "gold_set_v2.jsonl"
+DEFAULT_DATASET = PROJECT_ROOT / "datasets" / "retrieval-goldens.jsonl"
 RUNS_DIR = PROJECT_ROOT / "Evaluation" / "runs"
 TOP_KS = [1, 3, 5]
 NOT_EVALUATED = None

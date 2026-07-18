@@ -14,12 +14,15 @@ import backend.main as main
 import mechanics_retrieval
 from scripts.eval_mechanics_study import evaluate_case
 
+from conftest import requires_mechanics_artifacts
+
 
 def make_client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main, "_check_rate_limit", lambda ip: None)
     return TestClient(main.app)
 
 
+@requires_mechanics_artifacts
 def test_mechanics_study_endpoint_returns_structured_answer(monkeypatch):
     with make_client(monkeypatch) as client:
         response = client.post(
@@ -77,6 +80,7 @@ def test_mechanics_study_endpoint_missing_artifacts_fallback(monkeypatch, tmp_pa
     assert "not available" in body["answer"].lower()
 
 
+@requires_mechanics_artifacts
 def test_mechanics_study_eval_case_passes():
     result = evaluate_case(
         {

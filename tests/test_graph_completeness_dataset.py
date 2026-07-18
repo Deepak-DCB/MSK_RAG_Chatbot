@@ -12,6 +12,8 @@ if str(PROJECT_ROOT / "VectorDB") not in sys.path:
 
 from graph_retrieval import build_graph_context
 
+from conftest import requires_graph_artifacts
+
 
 def read_completeness_cases():
     path = PROJECT_ROOT / "datasets" / "graph-completeness-cases.jsonl"
@@ -25,6 +27,7 @@ def test_completeness_dataset_covers_all_20_articles_and_gap_status():
     assert len({case.get("article") for case in cases}) == 20
 
 
+@requires_graph_artifacts
 @pytest.mark.parametrize("case", read_completeness_cases(), ids=lambda c: c["case_id"])
 def test_full_article_completeness_cases(case):
     if case.get("known_gap"):
