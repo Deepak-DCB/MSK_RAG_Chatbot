@@ -71,6 +71,10 @@ try:
 except ImportError:
     BM25Okapi = None
 
+# First-party modules: catch only ImportError (module genuinely absent), unlike
+# a broad Exception — a real bug inside either module must fail the import
+# loudly, not masquerade as "feature not installed" (b548b6f/16511d8 both spent
+# a debugging round on graph failures that degraded silently).
 try:
     from hierarchical_retrieval import (
         build_citation_map,
@@ -78,7 +82,8 @@ try:
         map_chunks_to_hierarchy,
         token_estimate as hierarchy_token_estimate,
     )
-except Exception:
+except ImportError as exc:
+    logger.warning("hierarchical_retrieval unavailable, citation hierarchy disabled: %s", exc)
     build_citation_map = None  # type: ignore[assignment]
     load_hierarchical_corpus = None  # type: ignore[assignment]
     map_chunks_to_hierarchy = None  # type: ignore[assignment]
@@ -86,7 +91,8 @@ except Exception:
 
 try:
     from graph_retrieval import build_graph_context, format_graph_context
-except Exception:
+except ImportError as exc:
+    logger.warning("graph_retrieval unavailable, graph context disabled: %s", exc)
     build_graph_context = None  # type: ignore[assignment]
     format_graph_context = None  # type: ignore[assignment]
 
