@@ -168,29 +168,32 @@ def test_provider_calls_are_bounded_by_a_client_timeout():
 def test_startup_clamp_enforces_provider_timeout_invariant(monkeypatch, caplog):
     """The invariant above only checked the code's *defaults*. OPENAI_TIMEOUT_SECONDS is
     env-tunable, so a Render env change alone (e.g. OPENAI_TIMEOUT_SECONDS=150) could
-    silently break it in production. The startup clamp is the runtime guard."""
+    silently break it in production. The startup clamp is the runtime guard.
+
+    Patch via backend_main.qaEngine — the exact module object the clamp reads —
+    because other tests reload qaEngine, which can leave a fresh `import qaEngine`
+    pointing at a different module object than the one backend.main holds.
+    """
     import logging
 
-    import qaEngine
-
     monkeypatch.setattr(
-        qaEngine, "OPENAI_TIMEOUT_SECONDS", backend_main.STREAM_TOTAL_TIMEOUT + 30
+        backend_main.qaEngine,
+        "OPENAI_TIMEOUT_SECONDS",
+        backend_main.STREAM_TOTAL_TIMEOUT + 30,
     )
     with caplog.at_level(logging.WARNING, logger="backend.main"):
         backend_main._clamp_provider_timeout()
 
-    assert qaEngine.OPENAI_TIMEOUT_SECONDS <= backend_main.STREAM_TOTAL_TIMEOUT
-    assert any("clamping" in rec.message for rec in caplog.records)
+    assert backend_main.qaEngine.OPENAI_TIMEOUT_SECONDS <= backend_main.STREAM_TOTAL_TIMEOUT
+    assert any("clamping" in rec.getMessage() for rec in caplog.records)
 
 
 def test_startup_clamp_leaves_valid_timeout_untouched(monkeypatch, caplog):
     import logging
 
-    import qaEngine
-
-    monkeypatch.setattr(qaEngine, "OPENAI_TIMEOUT_SECONDS", 45)
+    monkeypatch.setattr(backend_main.qaEngine, "OPENAI_TIMEOUT_SECONDS", 45)
     with caplog.at_level(logging.WARNING, logger="backend.main"):
         backend_main._clamp_provider_timeout()
 
-    assert qaEngine.OPENAI_TIMEOUT_SECONDS == 45
+    assert backend_main.qaEngine.OPENAI_TIMEOUT_SECONDS == 45
     assert not caplog.records
